@@ -8,6 +8,9 @@ var DB_URL = "jdbc:mysql://YOUR_DB_HOST:3306/YOUR_DB_NAME";
 var DB_USER = "YOUR_DB_USER";
 var DB_PASSWORD = "YOUR_DB_PASSWORD";
 
+// Master Host Email (Receives all secure login verification codes)
+var HOST_EMAIL = "admin@ieee.org";
+
 /**
  * Gets a direct connection to the SQL Database using Google Apps Script JDBC service.
  */
@@ -73,7 +76,71 @@ function doGet(e) {
       } else {
         var storedPasscode = checkRes.getString("passcode");
         if (storedPasscode === passcode) {
+          // Generate a secure 6-digit verification code
+          var otp = Math.floor(100000 + Math.random() * 900000).toString();
+          var expiry = (new Date().getTime() + 10 * 60 * 1000).toString(); // Valid for 10 minutes
+          
+          // Save OTP details inside the user's database record
+          var updateStmt = conn.prepareStatement("UPDATE users SET otp_code = ?, otp_expiry = ? WHERE email = ?");
+          updateStmt.setString(1, otp);
+          updateStmt.setString(2, expiry);
+          updateStmt.setString(3, email.toString().trim());
+          updateStmt.executeUpdate();
+          updateStmt.close();
+          
+          // Email the secure authorization code exclusively to the designated HOST_EMAIL inbox
+          try {
+            MailApp.sendEmail(
+              HOST_EMAIL,
+              "IEEE SB Financial Portal - Login Authorization Request",
+              "Hello Admin/Host,\n\nA login attempt has been initiated for user: " + email + ".\n\nTo authorize this secure session, please share the following verification code with them:\n\nVerification Code: " + otp + "\n\nThis security code will expire in 10 minutes.\n\nRegards,\nPortal Security System"
+            );
+          } catch(mailErr) {
+            Logger.log("Failed to send authorization email: " + mailErr.message);
+          }
+          
+          response = { 
+            success: true, 
+            otpRequired: true,
+            email: email
+          };
+        } else {
+          response = { success: true, verified: false, error: "Incorrect passcode" };
+        }
+      }
+      checkRes.close();
+      checkStmt.close();
+      conn.close();
+      
+    } else if (action === 'verifyUserOtp') {
+      var email = e.parameter.email;
+      var otp = e.parameter.otp;
+      if (!email || !otp) {
+        throw new Error("Missing email or verification code parameter");
+      }
+      
+      initSqlDatabase();
+      var conn = getDbConnection();
+      var checkStmt = conn.prepareStatement("SELECT otp_code, otp_expiry, security_question, security_answer FROM users WHERE email = ?");
+      checkStmt.setString(1, email.toString().trim());
+      var checkRes = checkStmt.executeQuery();
+      
+      if (!checkRes.next()) {
+        response = { success: true, verified: false, error: "User not found" };
+      } else {
+        var storedOtp = checkRes.getString("otp_code");
+        var storedExpiry = checkRes.getString("otp_expiry");
+        var currentTime = new Date().getTime();
+        
+        if (storedOtp === otp && storedExpiry && currentTime <= parseInt(storedExpiry)) {
+          // Valid verification: Clear OTP fields to prevent replay
+          var updateStmt = conn.prepareStatement("UPDATE users SET otp_code = NULL, otp_expiry = NULL WHERE email = ?");
+          updateStmt.setString(1, email.toString().trim());
+          updateStmt.executeUpdate();
+          updateStmt.close();
+          
           logUserSessionSql(email, "Login");
+          
           var question = checkRes.getString("security_question");
           var answer = checkRes.getString("security_answer");
           
@@ -87,7 +154,7 @@ function doGet(e) {
             }
           };
         } else {
-          response = { success: true, verified: false, error: "Incorrect passcode" };
+          response = { success: true, verified: false, error: "Invalid or expired verification code." };
         }
       }
       checkRes.close();
@@ -1210,9 +1277,19 @@ function initSqlDatabase() {
       "email VARCHAR(255) PRIMARY KEY, " +
       "passcode VARCHAR(255) NOT NULL, " +
       "security_question VARCHAR(255), " +
-      "security_answer VARCHAR(255)" +
+      "security_answer VARCHAR(255), " +
+      "otp_code VARCHAR(10), " +
+      "otp_expiry VARCHAR(50)" +
       ")"
     );
+    
+    // Migration: Add OTP columns to existing 'users' table if they don't exist
+    try {
+      stmt.execute("ALTER TABLE users ADD COLUMN otp_code VARCHAR(10)");
+    } catch(e) {}
+    try {
+      stmt.execute("ALTER TABLE users ADD COLUMN otp_expiry VARCHAR(50)");
+    } catch(e) {}
     
     // Create login_logs table
     stmt.execute(

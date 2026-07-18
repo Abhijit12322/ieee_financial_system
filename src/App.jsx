@@ -71,12 +71,15 @@ function App() {
   const [securityQuestion, setSecurityQuestion] = useState('What is the default recovery code?');
   const [securityAnswer, setSecurityAnswer] = useState('IEEE@2026');
 
-  // Login view states: 'login' | 'signup' | 'forgot' | 'forgot_verify' | 'reset_passcode'
+  // Login view states: 'login' | 'signup' | 'forgot' | 'forgot_verify' | 'reset_passcode' | 'otp_verify'
   const [loginView, setLoginView] = useState('login');
   const [forgotEmail, setForgotEmail] = useState('');
   const [securityAnswerInput, setSecurityAnswerInput] = useState('');
   const [newPasscode, setNewPasscode] = useState('');
   const [confirmPasscode, setConfirmPasscode] = useState('');
+  const [otpCodeInput, setOtpCodeInput] = useState('');
+  const [expectedOtpCode, setExpectedOtpCode] = useState('');
+  const [otpEmail, setOtpEmail] = useState('');
 
   // Sign up input states
   const [signUpEmail, setSignUpEmail] = useState('');
@@ -141,6 +144,63 @@ function App() {
         const verifyResult = await verifyRes.json();
 
         if (verifyResult.success) {
+          if (verifyResult.otpRequired) {
+            setOtpEmail(targetEmail);
+            setOtpCodeInput('');
+            setLoginView('otp_verify');
+            setSuccessMsg("Authorization code sent to Host email!");
+            setLoading(false);
+            return;
+          } else if (verifyResult.verified) {
+            // Direct login (fallback if OTP bypass is allowed)
+            setIsAuthenticated(true);
+            setCurrentUserEmail(targetEmail);
+            sessionStorage.setItem('ieee_is_auth', 'true');
+            sessionStorage.setItem('ieee_user_email', targetEmail);
+            setLoginError('');
+            setLoading(false);
+            return;
+          } else {
+            setLoginError(verifyResult.error || 'Invalid email or passcode.');
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("Online verification failed, falling back to local database:", err);
+      }
+    }
+
+    // 2. Local fallback validation
+    const matchedUser = localUsers.find(usr => usr.email.trim().toLowerCase() === targetEmail);
+    if (matchedUser && matchedUser.passcode === passwordInput) {
+      // Generate a mock code for testing local database offline
+      const mockCode = Math.floor(100000 + Math.random() * 900000).toString();
+      setExpectedOtpCode(mockCode);
+      setOtpEmail(targetEmail);
+      setOtpCodeInput('');
+      setLoginView('otp_verify');
+      setSuccessMsg(`[Mock Mode] Authorization code sent to Host. Use code: ${mockCode}`);
+    } else {
+      setLoginError('Invalid email or passcode.');
+    }
+    setLoading(false);
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setLoginError('');
+    const targetEmail = otpEmail.trim().toLowerCase();
+
+    // 1. Online validation
+    if (gasUrl) {
+      try {
+        const verifyUrl = `${gasUrl}?action=verifyUserOtp&email=${encodeURIComponent(targetEmail)}&otp=${encodeURIComponent(otpCodeInput)}${spreadsheetId ? `&spreadsheetId=${spreadsheetId}` : ''}`;
+        const verifyRes = await fetch(verifyUrl);
+        const verifyResult = await verifyRes.json();
+
+        if (verifyResult.success) {
           if (verifyResult.verified) {
             setIsAuthenticated(true);
             setCurrentUserEmail(targetEmail);
@@ -163,9 +223,10 @@ function App() {
 
             setLoginError('');
             setLoading(false);
+            setLoginView('login');
             return;
           } else {
-            setLoginError(verifyResult.error || 'Invalid email or passcode.');
+            setLoginError(verifyResult.error || 'Invalid or expired verification code.');
             setLoading(false);
             return;
           }
@@ -176,15 +237,15 @@ function App() {
     }
 
     // 2. Local fallback validation
-    const matchedUser = localUsers.find(usr => usr.email.trim().toLowerCase() === targetEmail);
-    if (matchedUser && matchedUser.passcode === passwordInput) {
+    if (expectedOtpCode && otpCodeInput === expectedOtpCode) {
       setIsAuthenticated(true);
       setCurrentUserEmail(targetEmail);
       sessionStorage.setItem('ieee_is_auth', 'true');
       sessionStorage.setItem('ieee_user_email', targetEmail);
       setLoginError('');
+      setLoginView('login');
     } else {
-      setLoginError('Invalid email or passcode.');
+      setLoginError('Invalid or expired verification code.');
     }
     setLoading(false);
   };
@@ -1842,6 +1903,47 @@ function App() {
                   Back to Sign In
                 </button>
               </div>
+            ) : loginView === 'otp_verify' ? (
+              <form onSubmit={handleVerifyOtp} className="login-form">
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '16px', textAlign: 'center', lineHeight: '1.4' }}>
+                  A login request was initiated. A 6-digit authorization code has been dispatched to the Host's email. Please obtain the code to verify your session.
+                </p>
+
+                <div className="login-input-wrapper">
+                  <Lock size={16} className="login-input-icon" />
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="Enter 6-Digit Code"
+                    className="login-input"
+                    style={{ paddingLeft: '38px', letterSpacing: '4px', textAlign: 'center', fontWeight: 'bold' }}
+                    value={otpCodeInput}
+                    onChange={(e) => setOtpCodeInput(e.target.value.replace(/\D/g, ''))}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                {loginError && (
+                  <div className="login-error" style={{ marginTop: '12px' }}>
+                    <X size={14} />
+                    <span>{loginError}</span>
+                  </div>
+                )}
+
+                <button type="submit" className="login-btn" style={{ marginTop: '16px' }} disabled={loading}>
+                  {loading ? "Authorizing..." : "Verify & Enter Dashboard"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setLoginView('login'); setLoginError(''); setOtpCodeInput(''); }}
+                  className="login-btn btn-outline"
+                  style={{ marginTop: '6px' }}
+                >
+                  Back to Sign In
+                </button>
+              </form>
             ) : (
               <form onSubmit={handleResetPasscodeSubmit} className="login-form">
                 <div className="login-input-wrapper">
