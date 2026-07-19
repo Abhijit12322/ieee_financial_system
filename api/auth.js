@@ -60,7 +60,7 @@ async function initDbSchema(sql) {
   }
 }
 
-// Mail Dispatcher using Gmail App Password via SMTP (port 465)
+// Mail Dispatcher using Gmail App Password via SMTP (port 587 TLS/STARTTLS)
 async function sendEmailViaGmail(toEmail, subject, textContent) {
   const gmailUser = process.env.SENDER_EMAIL;
   // Automatically strip any spaces from Gmail App Password (usually pasted as "abcd efgh ijkl mnop")
@@ -74,8 +74,8 @@ async function sendEmailViaGmail(toEmail, subject, textContent) {
   try {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true, // secure connection via SSL
+      port: 587,
+      secure: false, // false for port 587 (TLS/STARTTLS)
       auth: {
         user: gmailUser,
         pass: gmailAppPass
@@ -199,7 +199,13 @@ export default async (req, res) => {
       const subject = "IEEE SB Financial Portal - Registration Authorization Request";
       const content = `Hello Host,\n\nA registration attempt was initiated for user: ${email}.\n\nTo authorize their account creation, please share the following verification code with them:\n\nVerification Code: ${otp}\n\nThis security code will expire in 10 minutes.\n\nRegards,\nPortal Security System`;
 
-      await sendEmailViaGmail(hostEmail, subject, content);
+      const emailSent = await sendEmailViaGmail(hostEmail, subject, content);
+      if (!emailSent) {
+        return res.status(500).json({
+          success: false,
+          error: "Failed to dispatch verification email. Please check your SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) on Vercel."
+        });
+      }
 
       return res.status(200).json({
         success: true,
@@ -277,7 +283,13 @@ export default async (req, res) => {
       // Note: Hashed passwords cannot be decrypted. The Host will be prompted that the passcode is encrypted and must be reset via security question or direct DB.
       const content = `Hello Host,\n\nA passcode recovery request was initiated for user: ${email}.\n\nNote: The user passcode is securely encrypted (hashed via SHA-256) inside the database. They must answer their security question to reset it, or you can clear it in the database.\n\nRegards,\nPortal Security System`;
 
-      await sendEmailViaGmail(hostEmail, subject, content);
+      const emailSent = await sendEmailViaGmail(hostEmail, subject, content);
+      if (!emailSent) {
+        return res.status(500).json({
+          success: false,
+          error: "Failed to dispatch recovery request email. Please check your SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) on Vercel."
+        });
+      }
 
       return res.status(200).json({ success: true, message: "Passcode recovery request dispatched to Host." });
 
