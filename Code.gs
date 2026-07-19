@@ -3,8 +3,7 @@
  * Serves as a REST API for the Vercel-hosted React application.
  */
 
-// Master Host Email (Receives all secure login authorization request codes)
-var HOST_EMAIL = "admin@ieee.org";
+
 
 // Allow cross-origin requests
 function doGet(e) {
@@ -127,30 +126,6 @@ function doPost(e) {
       
       deleteEventSheet(ss, yearName);
       response = { success: true, message: "Year '" + yearName + "' deleted successfully.", events: getBookKeepingSheetsList(ss) };
-      
-    } else if (action === 'sendHostEmail') {
-      var email = data.email;
-      var otp = data.otp;
-      if (!email || !otp) throw new Error("Missing parameters for sendHostEmail");
-      
-      MailApp.sendEmail(
-        HOST_EMAIL,
-        "IEEE SB Financial Portal - Login Authorization Request",
-        "Hello Admin/Host,\n\nA login attempt has been initiated for user: " + email + ".\n\nTo authorize this secure session, please share the following verification code with them:\n\nVerification Code: " + otp + "\n\nThis security code will expire in 10 minutes.\n\nRegards,\nPortal Security System"
-      );
-      response = { success: true, message: "Host authorization code email dispatched." };
-      
-    } else if (action === 'sendRecoveryEmail') {
-      var email = data.email;
-      var passcode = data.passcode;
-      if (!email || !passcode) throw new Error("Missing parameters for sendRecoveryEmail");
-      
-      MailApp.sendEmail(
-        email, 
-        "IEEE SB Financial Portal - Passcode Recovery", 
-        "Hello,\n\nYour access passcode for IEEE SB Financial Portal is: " + passcode + "\n\nRegards,\nSystem Administrator"
-      );
-      response = { success: true, message: "Recovery email dispatched." };
     } else {
       throw new Error("Unknown action: " + action);
     }

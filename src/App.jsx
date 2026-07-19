@@ -80,6 +80,7 @@ function App() {
   const [otpCodeInput, setOtpCodeInput] = useState('');
   const [expectedOtpCode, setExpectedOtpCode] = useState('');
   const [otpEmail, setOtpEmail] = useState('');
+  const [pendingSignUpData, setPendingSignUpData] = useState(null);
 
   // Sign up input states
   const [signUpEmail, setSignUpEmail] = useState('');
@@ -142,14 +143,7 @@ function App() {
       if (verifyRes.ok) {
         const verifyResult = await verifyRes.json();
         if (verifyResult.success) {
-          if (verifyResult.otpRequired) {
-            setOtpEmail(targetEmail);
-            setOtpCodeInput('');
-            setLoginView('otp_verify');
-            setSuccessMsg("Authorization code sent to Host email!");
-            setLoading(false);
-            return;
-          } else if (verifyResult.verified) {
+          if (verifyResult.verified) {
             setIsAuthenticated(true);
             setCurrentUserEmail(targetEmail);
             sessionStorage.setItem('ieee_is_auth', 'true');
@@ -171,12 +165,11 @@ function App() {
     // 2. Local fallback validation
     const matchedUser = localUsers.find(usr => usr.email.trim().toLowerCase() === targetEmail);
     if (matchedUser && matchedUser.passcode === passwordInput) {
-      const mockCode = Math.floor(100000 + Math.random() * 900000).toString();
-      setExpectedOtpCode(mockCode);
-      setOtpEmail(targetEmail);
-      setOtpCodeInput('');
-      setLoginView('otp_verify');
-      setSuccessMsg(`[Mock Mode] Authorization code sent to Host. Use code: ${mockCode}`);
+      setIsAuthenticated(true);
+      setCurrentUserEmail(targetEmail);
+      sessionStorage.setItem('ieee_is_auth', 'true');
+      sessionStorage.setItem('ieee_user_email', targetEmail);
+      setLoginError('');
     } else {
       setLoginError('Invalid email or passcode.');
     }
@@ -191,34 +184,34 @@ function App() {
 
     // 1. Online validation via Vercel Serverless Function
     try {
-      const verifyUrl = `/api/auth?action=verifyUserOtp&email=${encodeURIComponent(targetEmail)}&otp=${encodeURIComponent(otpCodeInput)}`;
+      const verifyUrl = `/api/auth?action=verifySignUpOtp&email=${encodeURIComponent(targetEmail)}&otp=${encodeURIComponent(otpCodeInput)}`;
       const verifyRes = await fetch(verifyUrl);
       if (verifyRes.ok) {
         const verifyResult = await verifyRes.json();
         if (verifyResult.success) {
           if (verifyResult.verified) {
-            setIsAuthenticated(true);
-            setCurrentUserEmail(targetEmail);
-            sessionStorage.setItem('ieee_is_auth', 'true');
-            sessionStorage.setItem('ieee_user_email', targetEmail);
-
-            // Cache security questions locally
-            if (verifyResult.user) {
-              const u = verifyResult.user;
+            // Success! Save user settings locally
+            if (pendingSignUpData) {
               const updatedUsers = localUsers.filter(usr => usr.email.toLowerCase() !== targetEmail);
               updatedUsers.push({
                 email: targetEmail,
-                passcode: passwordInput,
-                security_question: u.security_question,
-                security_answer: u.security_answer
+                passcode: pendingSignUpData.passcode,
+                security_question: pendingSignUpData.security_question,
+                security_answer: pendingSignUpData.security_answer
               });
               setLocalUsers(updatedUsers);
               localStorage.setItem('ieee_local_users', JSON.stringify(updatedUsers));
             }
 
+            setIsAuthenticated(true);
+            setCurrentUserEmail(targetEmail);
+            sessionStorage.setItem('ieee_is_auth', 'true');
+            sessionStorage.setItem('ieee_user_email', targetEmail);
+
             setLoginError('');
             setLoading(false);
             setLoginView('login');
+            setPendingSignUpData(null);
             return;
           } else {
             setLoginError(verifyResult.error || 'Invalid or expired verification code.');
@@ -233,12 +226,25 @@ function App() {
 
     // 2. Local fallback validation
     if (expectedOtpCode && otpCodeInput === expectedOtpCode) {
+      if (pendingSignUpData) {
+        const updatedUsers = localUsers.filter(usr => usr.email.toLowerCase() !== targetEmail);
+        updatedUsers.push({
+          email: targetEmail,
+          passcode: pendingSignUpData.passcode,
+          security_question: pendingSignUpData.security_question,
+          security_answer: pendingSignUpData.security_answer
+        });
+        setLocalUsers(updatedUsers);
+        localStorage.setItem('ieee_local_users', JSON.stringify(updatedUsers));
+      }
+
       setIsAuthenticated(true);
       setCurrentUserEmail(targetEmail);
       sessionStorage.setItem('ieee_is_auth', 'true');
       sessionStorage.setItem('ieee_user_email', targetEmail);
       setLoginError('');
       setLoginView('login');
+      setPendingSignUpData(null);
     } else {
       setLoginError('Invalid or expired verification code.');
     }
@@ -262,13 +268,13 @@ function App() {
       return;
     }
 
-    // 1. Sync registration online if connected
+    // 1. Try online authorization code request
     try {
       const response = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'saveUserAccount',
+          action: 'requestSignUpOtp',
           email: targetEmail,
           passcode: signUpPasscode,
           security_question: signUpQuestion,
@@ -277,15 +283,30 @@ function App() {
       });
       if (response.ok) {
         const result = await response.json();
-        if (!result.success) {
-          throw new Error(result.error || "Online registration failed.");
+        if (result.success && result.otpRequired) {
+          setPendingSignUpData({
+            email: targetEmail,
+            passcode: signUpPasscode,
+            security_question: signUpQuestion,
+            security_answer: signUpAnswer
+          });
+          setOtpEmail(targetEmail);
+          setOtpCodeInput('');
+          setLoginView('otp_verify');
+          setSuccessMsg("Authorization code sent to Host email!");
+          setLoading(false);
+          return;
+        } else {
+          setLoginError(result.error || "Failed to initiate registration.");
+          setLoading(false);
+          return;
         }
       }
     } catch (err) {
-      console.error("Online signup sync failed, saving locally:", err);
+      console.warn("Online signup init failed, falling back to mock mode:", err);
     }
 
-    // 2. Cache registration in localUsers
+    // 2. Local fallback mock mode
     const userExists = localUsers.some(usr => usr.email.trim().toLowerCase() === targetEmail);
     if (userExists) {
       setLoginError("An account with this email already exists.");
@@ -293,25 +314,18 @@ function App() {
       return;
     }
 
-    const updatedUsers = [...localUsers, {
+    const mockCode = Math.floor(100000 + Math.random() * 900000).toString();
+    setExpectedOtpCode(mockCode);
+    setPendingSignUpData({
       email: targetEmail,
       passcode: signUpPasscode,
       security_question: signUpQuestion,
       security_answer: signUpAnswer
-    }];
-    setLocalUsers(updatedUsers);
-    localStorage.setItem('ieee_local_users', JSON.stringify(updatedUsers));
-
-    // Redirect to login screen
-    setSuccessMsg("Account registered successfully! You can now log in.");
-    setLoginView('login');
-
-    // Clear inputs
-    setSignUpEmail('');
-    setSignUpPasscode('');
-    setSignUpConfirmPasscode('');
-    setSignUpAnswer('');
-
+    });
+    setOtpEmail(targetEmail);
+    setOtpCodeInput('');
+    setLoginView('otp_verify');
+    setSuccessMsg(`[Mock Mode] Authorization code sent to Host. Use code: ${mockCode}`);
     setLoading(false);
   };
 
@@ -1901,7 +1915,7 @@ function App() {
             ) : loginView === 'otp_verify' ? (
               <form onSubmit={handleVerifyOtp} className="login-form">
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '16px', textAlign: 'center', lineHeight: '1.4' }}>
-                  A login request was initiated. A 6-digit authorization code has been dispatched to the Host's email. Please obtain the code to verify your session.
+                  A registration authorization request was initiated. A 6-digit verification code has been dispatched to the Host's email. Please obtain the code to verify your account registration.
                 </p>
 
                 <div className="login-input-wrapper">
@@ -1927,12 +1941,12 @@ function App() {
                 )}
 
                 <button type="submit" className="login-btn" style={{ marginTop: '16px' }} disabled={loading}>
-                  {loading ? "Authorizing..." : "Verify & Enter Dashboard"}
+                  {loading ? "Authorizing..." : "Verify & Create Account"}
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => { setLoginView('login'); setLoginError(''); setOtpCodeInput(''); }}
+                  onClick={() => { setLoginView('login'); setLoginError(''); setOtpCodeInput(''); setPendingSignUpData(null); }}
                   className="login-btn btn-outline"
                   style={{ marginTop: '6px' }}
                 >

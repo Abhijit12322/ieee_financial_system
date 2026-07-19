@@ -1,7 +1,7 @@
 const { neon } = require('@neondatabase/serverless');
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const nodemailer = require('nodemailer');
 
-// Helper function to get database connection and run setup
+// Helper function to initialize database tables and apply migrations
 async function initDbSchema(sql) {
   try {
     // Create users table
@@ -12,7 +12,8 @@ async function initDbSchema(sql) {
         security_question VARCHAR(255),
         security_answer VARCHAR(255),
         otp_code VARCHAR(10),
-        otp_expiry VARCHAR(50)
+        otp_expiry VARCHAR(50),
+        is_verified BOOLEAN DEFAULT FALSE
       )
     `);
 
@@ -26,14 +27,22 @@ async function initDbSchema(sql) {
       )
     `);
 
+    // Migration: Add is_verified column to existing 'users' table if it doesn't exist
+    try {
+      await sql(`ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT FALSE`);
+    } catch (e) {}
+
     // Seed default admin if table is empty
     const countRes = await sql(`SELECT COUNT(*) FROM users`);
     const count = parseInt(countRes[0].count);
     if (count === 0) {
       await sql(`
-        INSERT INTO users (email, passcode, security_question, security_answer)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO users (email, passcode, security_question, security_answer, is_verified)
+        VALUES ($1, $2, $3, $4, TRUE)
       `, ['admin@ieee.org', 'IEEE@2026', 'What is the default recovery code?', 'IEEE@2026']);
+    } else {
+      // Ensure seed admin is always verified
+      await sql(`UPDATE users SET is_verified = TRUE WHERE email = $1`, ['admin@ieee.org']);
     }
 
     // Automatically delete login logs older than 60 days to save space and maintain privacy
@@ -44,27 +53,34 @@ async function initDbSchema(sql) {
   }
 }
 
-// Mail Forwarding Helper to Google Apps Script
-async function forwardMailToGas(action, payload) {
-  const gasUrl = process.env.VITE_GAS_URL;
-  if (!gasUrl) {
-    console.warn("VITE_GAS_URL not configured. Mail forwarding bypassed.");
+// Mail Dispatcher using Gmail App Password via SMTP
+async function sendEmailViaGmail(toEmail, subject, textContent) {
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailAppPass = process.env.GMAIL_APP_PASS;
+
+  if (!gmailUser || !gmailAppPass) {
+    console.warn("SMTP credentials (GMAIL_USER / GMAIL_APP_PASS) not configured in environment variables. Email bypassed.");
     return false;
   }
 
   try {
-    const res = await fetch(gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({
-        action: action,
-        ...payload
-      })
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: gmailUser,
+        pass: gmailAppPass
+      }
     });
-    const result = await res.json();
-    return result.success;
+
+    await transporter.sendMail({
+      from: `"Portal Security" <${gmailUser}>`,
+      to: toEmail,
+      subject: subject,
+      text: textContent
+    });
+    return true;
   } catch (err) {
-    console.error(`Mail forwarding failed for action ${action}:`, err);
+    console.error("Failed to send email via SMTP nodemailer:", err);
     return false;
   }
 }
@@ -104,39 +120,89 @@ module.exports = async (req, res) => {
         return res.status(400).json({ success: false, error: "Missing email or passcode parameter" });
       }
 
-      const users = await sql(`SELECT passcode, security_question, security_answer FROM users WHERE email = $1`, [email]);
+      const users = await sql(`SELECT passcode, security_question, security_answer, is_verified FROM users WHERE email = $1`, [email]);
       if (users.length === 0) {
         return res.status(200).json({ success: true, verified: false, error: "User not found" });
       }
 
       const user = users[0];
-      if (user.passcode === passcode) {
-        // Generate OTP and expiration (10 minutes)
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        const expiry = (new Date().getTime() + 10 * 60 * 1000).toString();
-
-        await sql(`UPDATE users SET otp_code = $1, otp_expiry = $2 WHERE email = $3`, [otp, expiry, email]);
-
-        // Forward mail request to Google Apps Script
-        await forwardMailToGas('sendHostEmail', { email, otp });
-
-        return res.status(200).json({ 
-          success: true, 
-          otpRequired: true, 
-          email: email 
-        });
-      } else {
+      if (user.passcode !== passcode) {
         return res.status(200).json({ success: true, verified: false, error: "Incorrect passcode" });
       }
 
-    } else if (action === 'verifyUserOtp') {
+      if (!user.is_verified) {
+        return res.status(200).json({ success: true, verified: false, error: "This account is pending host authorization. Please sign up again to request verification." });
+      }
+
+      // Valid Credentials & Verified: Log directly into dashboard (No OTP needed for logins!)
+      const formattedDate = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
+      await sql(`INSERT INTO login_logs (email, action, timestamp) VALUES ($1, $2, $3)`, [email, "Login", formattedDate]);
+
+      return res.status(200).json({
+        success: true,
+        verified: true,
+        user: {
+          email: email,
+          security_question: user.security_question,
+          security_answer: user.security_answer
+        }
+      });
+
+    } else if (action === 'requestSignUpOtp') {
+      const email = params.email ? params.email.trim().toLowerCase() : '';
+      const passcode = params.passcode;
+      const question = params.security_question;
+      const answer = params.security_answer;
+
+      if (!email || !passcode) {
+        return res.status(400).json({ success: false, error: "Missing email or passcode parameter" });
+      }
+
+      // Check if user is already registered and verified
+      const checkRes = await sql(`SELECT is_verified FROM users WHERE email = $1`, [email]);
+      if (checkRes.length > 0 && checkRes[0].is_verified) {
+        return res.status(200).json({ success: false, error: "An account with this email already exists." });
+      }
+
+      // Generate OTP code
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiry = (new Date().getTime() + 10 * 60 * 1000).toString(); // Valid for 10 minutes
+
+      // Upsert temporary user state
+      if (checkRes.length === 0) {
+        await sql(`
+          INSERT INTO users (email, passcode, security_question, security_answer, otp_code, otp_expiry, is_verified)
+          VALUES ($1, $2, $3, $4, $5, $6, FALSE)
+        `, [email, passcode, question || "What is the default recovery code?", answer || "IEEE@2026", otp, expiry]);
+      } else {
+        await sql(`
+          UPDATE users 
+          SET passcode = $1, security_question = $2, security_answer = $3, otp_code = $4, otp_expiry = $5, is_verified = FALSE
+          WHERE email = $6
+        `, [passcode, question || "What is the default recovery code?", answer || "IEEE@2026", otp, expiry, email]);
+      }
+
+      // Send OTP code to the designated HOST_EMAIL
+      const hostEmail = process.env.HOST_EMAIL || "admin@ieee.org";
+      const subject = "IEEE SB Financial Portal - Registration Authorization Request";
+      const content = `Hello Host,\n\nA registration attempt was initiated for user: ${email}.\n\nTo authorize their account creation, please share the following verification code with them:\n\nVerification Code: ${otp}\n\nThis security code will expire in 10 minutes.\n\nRegards,\nPortal Security System`;
+
+      await sendEmailViaGmail(hostEmail, subject, content);
+
+      return res.status(200).json({
+        success: true,
+        otpRequired: true,
+        email: email
+      });
+
+    } else if (action === 'verifySignUpOtp') {
       const email = params.email ? params.email.trim().toLowerCase() : '';
       const otp = params.otp;
       if (!email || !otp) {
         return res.status(400).json({ success: false, error: "Missing email or OTP verification code" });
       }
 
-      const users = await sql(`SELECT otp_code, otp_expiry, security_question, security_answer FROM users WHERE email = $1`, [email]);
+      const users = await sql(`SELECT otp_code, otp_expiry FROM users WHERE email = $1`, [email]);
       if (users.length === 0) {
         return res.status(200).json({ success: true, verified: false, error: "User not found" });
       }
@@ -145,24 +211,9 @@ module.exports = async (req, res) => {
       const currentTime = new Date().getTime();
 
       if (user.otp_code === otp && user.otp_expiry && currentTime <= parseInt(user.otp_expiry)) {
-        // Valid OTP: Clear OTP fields
-        await sql(`UPDATE users SET otp_code = NULL, otp_expiry = NULL WHERE email = $1`, [email]);
-
-        // Log session audit in Neon Postgres
-        const timeZone = "GMT+5:30";
-        // Calculate offset date string
-        const formattedDate = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
-        await sql(`INSERT INTO login_logs (email, action, timestamp) VALUES ($1, $2, $3)`, [email, "Login", formattedDate]);
-
-        return res.status(200).json({
-          success: true,
-          verified: true,
-          user: {
-            email: email,
-            security_question: user.security_question,
-            security_answer: user.security_answer
-          }
-        });
+        // Verification Successful: mark user as verified and clear OTP
+        await sql(`UPDATE users SET is_verified = TRUE, otp_code = NULL, otp_expiry = NULL WHERE email = $1`, [email]);
+        return res.status(200).json({ success: true, verified: true });
       } else {
         return res.status(200).json({ success: true, verified: false, error: "Invalid or expired verification code." });
       }
@@ -207,8 +258,12 @@ module.exports = async (req, res) => {
       }
 
       const passcode = users[0].passcode;
-      // Forward recovery email call to Apps Script
-      await forwardMailToGas('sendRecoveryEmail', { email, passcode });
+      
+      // Send passcode directly to user's registered email using direct Gmail SMTP transporter
+      const subject = "IEEE SB Financial Portal - Passcode Recovery";
+      const content = `Hello,\n\nYour access passcode for IEEE SB Financial Portal is: ${passcode}\n\nRegards,\nSystem Administrator`;
+
+      await sendEmailViaGmail(email, subject, content);
 
       return res.status(200).json({ success: true, message: "Passcode has been emailed to you." });
 
@@ -228,13 +283,13 @@ module.exports = async (req, res) => {
 
       if (count === 0) {
         await sql(`
-          INSERT INTO users (email, passcode, security_question, security_answer)
-          VALUES ($1, $2, $3, $4)
+          INSERT INTO users (email, passcode, security_question, security_answer, is_verified)
+          VALUES ($1, $2, $3, $4, TRUE)
         `, [email, passcode, question || "What is the default recovery code?", answer || "IEEE@2026"]);
       } else {
         await sql(`
           UPDATE users 
-          SET passcode = $1, security_question = $2, security_answer = $3
+          SET passcode = $1, security_question = $2, security_answer = $3, is_verified = TRUE
           WHERE email = $4
         `, [passcode, question || "What is the default recovery code?", answer || "IEEE@2026", email]);
       }
