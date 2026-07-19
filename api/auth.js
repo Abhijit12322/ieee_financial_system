@@ -55,11 +55,11 @@ async function initDbSchema(sql) {
 
 // Mail Dispatcher using Gmail App Password via SMTP
 async function sendEmailViaGmail(toEmail, subject, textContent) {
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailAppPass = process.env.GMAIL_APP_PASS;
+  const gmailUser = process.env.SENDER_EMAIL;
+  const gmailAppPass = process.env.SENDER_PASSWORD;
 
   if (!gmailUser || !gmailAppPass) {
-    console.warn("SMTP credentials (GMAIL_USER / GMAIL_APP_PASS) not configured in environment variables. Email bypassed.");
+    console.warn("SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) not configured in environment variables. Email bypassed.");
     return false;
   }
 
