@@ -67,8 +67,7 @@ async function sendEmailViaGmail(toEmail, subject, textContent) {
   const gmailAppPass = process.env.SENDER_PASSWORD ? process.env.SENDER_PASSWORD.replace(/\s+/g, '') : '';
 
   if (!gmailUser || !gmailAppPass) {
-    console.warn("SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) not configured in environment variables. Email bypassed.");
-    return false;
+    return { success: false, error: "SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) not configured on Vercel." };
   }
 
   try {
@@ -88,10 +87,10 @@ async function sendEmailViaGmail(toEmail, subject, textContent) {
       subject: subject,
       text: textContent
     });
-    return true;
+    return { success: true };
   } catch (err) {
     console.error("Failed to send email via SMTP nodemailer:", err);
-    return false;
+    return { success: false, error: err.message };
   }
 }
 
@@ -199,11 +198,11 @@ export default async (req, res) => {
       const subject = "IEEE SB Financial Portal - Registration Authorization Request";
       const content = `Hello Host,\n\nA registration attempt was initiated for user: ${email}.\n\nTo authorize their account creation, please share the following verification code with them:\n\nVerification Code: ${otp}\n\nThis security code will expire in 10 minutes.\n\nRegards,\nPortal Security System`;
 
-      const emailSent = await sendEmailViaGmail(hostEmail, subject, content);
-      if (!emailSent) {
+      const emailResult = await sendEmailViaGmail(hostEmail, subject, content);
+      if (!emailResult.success) {
         return res.status(500).json({
           success: false,
-          error: "Failed to dispatch verification email. Please check your SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) on Vercel."
+          error: `Failed to dispatch verification email: ${emailResult.error}. Please check your SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) on Vercel.`
         });
       }
 
@@ -283,11 +282,11 @@ export default async (req, res) => {
       // Note: Hashed passwords cannot be decrypted. The Host will be prompted that the passcode is encrypted and must be reset via security question or direct DB.
       const content = `Hello Host,\n\nA passcode recovery request was initiated for user: ${email}.\n\nNote: The user passcode is securely encrypted (hashed via SHA-256) inside the database. They must answer their security question to reset it, or you can clear it in the database.\n\nRegards,\nPortal Security System`;
 
-      const emailSent = await sendEmailViaGmail(hostEmail, subject, content);
-      if (!emailSent) {
+      const emailResult = await sendEmailViaGmail(hostEmail, subject, content);
+      if (!emailResult.success) {
         return res.status(500).json({
           success: false,
-          error: "Failed to dispatch recovery request email. Please check your SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) on Vercel."
+          error: `Failed to dispatch recovery request email: ${emailResult.error}. Please check your SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) on Vercel.`
         });
       }
 
