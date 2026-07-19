@@ -3,23 +3,8 @@
  * Serves as a REST API for the Vercel-hosted React application.
  */
 
-// SQL Database Connection Parameters
-var DB_URL = "jdbc:mysql://YOUR_DB_HOST:3306/YOUR_DB_NAME";
-var DB_USER = "YOUR_DB_USER";
-var DB_PASSWORD = "YOUR_DB_PASSWORD";
-
-// Master Host Email (Receives all secure login verification codes)
+// Master Host Email (Receives all secure login authorization request codes)
 var HOST_EMAIL = "admin@ieee.org";
-
-/**
- * Gets a direct connection to the SQL Database using Google Apps Script JDBC service.
- */
-function getDbConnection() {
-  if (DB_URL.indexOf("YOUR_DB_HOST") !== -1) {
-    throw new Error("SQL Database connection parameters not configured. Please edit DB_URL, DB_USER, and DB_PASSWORD variables at the top of Code.gs.");
-  }
-  return Jdbc.getConnection(DB_URL, DB_USER, DB_PASSWORD);
-}
 
 // Allow cross-origin requests
 function doGet(e) {
@@ -58,203 +43,7 @@ function doGet(e) {
           security_question: "What is the default recovery code?"
         } 
       };
-    } else if (action === 'verifyUserLogin') {
-      var email = e.parameter.email;
-      var passcode = e.parameter.passcode;
-      if (!email || !passcode) {
-        throw new Error("Missing email or passcode parameter");
-      }
-      
-      initSqlDatabase();
-      var conn = getDbConnection();
-      var checkStmt = conn.prepareStatement("SELECT passcode, security_question, security_answer FROM users WHERE email = ?");
-      checkStmt.setString(1, email.toString().trim());
-      var checkRes = checkStmt.executeQuery();
-      
-      if (!checkRes.next()) {
-        response = { success: true, verified: false, error: "User not found" };
-      } else {
-        var storedPasscode = checkRes.getString("passcode");
-        if (storedPasscode === passcode) {
-          // Generate a secure 6-digit verification code
-          var otp = Math.floor(100000 + Math.random() * 900000).toString();
-          var expiry = (new Date().getTime() + 10 * 60 * 1000).toString(); // Valid for 10 minutes
-          
-          // Save OTP details inside the user's database record
-          var updateStmt = conn.prepareStatement("UPDATE users SET otp_code = ?, otp_expiry = ? WHERE email = ?");
-          updateStmt.setString(1, otp);
-          updateStmt.setString(2, expiry);
-          updateStmt.setString(3, email.toString().trim());
-          updateStmt.executeUpdate();
-          updateStmt.close();
-          
-          // Email the secure authorization code exclusively to the designated HOST_EMAIL inbox
-          try {
-            MailApp.sendEmail(
-              HOST_EMAIL,
-              "IEEE SB Financial Portal - Login Authorization Request",
-              "Hello Admin/Host,\n\nA login attempt has been initiated for user: " + email + ".\n\nTo authorize this secure session, please share the following verification code with them:\n\nVerification Code: " + otp + "\n\nThis security code will expire in 10 minutes.\n\nRegards,\nPortal Security System"
-            );
-          } catch(mailErr) {
-            Logger.log("Failed to send authorization email: " + mailErr.message);
-          }
-          
-          response = { 
-            success: true, 
-            otpRequired: true,
-            email: email
-          };
-        } else {
-          response = { success: true, verified: false, error: "Incorrect passcode" };
-        }
-      }
-      checkRes.close();
-      checkStmt.close();
-      conn.close();
-      
-    } else if (action === 'verifyUserOtp') {
-      var email = e.parameter.email;
-      var otp = e.parameter.otp;
-      if (!email || !otp) {
-        throw new Error("Missing email or verification code parameter");
-      }
-      
-      initSqlDatabase();
-      var conn = getDbConnection();
-      var checkStmt = conn.prepareStatement("SELECT otp_code, otp_expiry, security_question, security_answer FROM users WHERE email = ?");
-      checkStmt.setString(1, email.toString().trim());
-      var checkRes = checkStmt.executeQuery();
-      
-      if (!checkRes.next()) {
-        response = { success: true, verified: false, error: "User not found" };
-      } else {
-        var storedOtp = checkRes.getString("otp_code");
-        var storedExpiry = checkRes.getString("otp_expiry");
-        var currentTime = new Date().getTime();
-        
-        if (storedOtp === otp && storedExpiry && currentTime <= parseInt(storedExpiry)) {
-          // Valid verification: Clear OTP fields to prevent replay
-          var updateStmt = conn.prepareStatement("UPDATE users SET otp_code = NULL, otp_expiry = NULL WHERE email = ?");
-          updateStmt.setString(1, email.toString().trim());
-          updateStmt.executeUpdate();
-          updateStmt.close();
-          
-          logUserSessionSql(email, "Login");
-          
-          var question = checkRes.getString("security_question");
-          var answer = checkRes.getString("security_answer");
-          
-          response = { 
-            success: true, 
-            verified: true,
-            user: {
-              email: email,
-              security_question: question,
-              security_answer: answer
-            }
-          };
-        } else {
-          response = { success: true, verified: false, error: "Invalid or expired verification code." };
-        }
-      }
-      checkRes.close();
-      checkStmt.close();
-      conn.close();
-      
-    } else if (action === 'getUserQuestion') {
-      var email = e.parameter.email;
-      if (!email) throw new Error("Missing email parameter");
-      
-      initSqlDatabase();
-      var conn = getDbConnection();
-      var checkStmt = conn.prepareStatement("SELECT security_question FROM users WHERE email = ?");
-      checkStmt.setString(1, email.toString().trim());
-      var checkRes = checkStmt.executeQuery();
-      
-      if (!checkRes.next()) {
-        throw new Error("User not found");
-      }
-      
-      var question = checkRes.getString("security_question");
-      response = { success: true, security_question: question };
-      checkRes.close();
-      checkStmt.close();
-      conn.close();
-      
-    } else if (action === 'verifyUserAnswer') {
-      var email = e.parameter.email;
-      var answer = e.parameter.answer;
-      if (!email || !answer) throw new Error("Missing email or answer parameter");
-      
-      initSqlDatabase();
-      var conn = getDbConnection();
-      var checkStmt = conn.prepareStatement("SELECT security_answer FROM users WHERE email = ?");
-      checkStmt.setString(1, email.toString().trim());
-      var checkRes = checkStmt.executeQuery();
-      
-      if (!checkRes.next()) throw new Error("User not found");
-      
-      var storedAnswer = checkRes.getString("security_answer").toString().trim().toLowerCase();
-      var isVerified = answer.toString().trim().toLowerCase() === storedAnswer;
-      response = { success: true, verified: isVerified };
-      checkRes.close();
-      checkStmt.close();
-      conn.close();
-      
-    } else if (action === 'forgotUserPassword') {
-      var email = e.parameter.email;
-      if (!email) throw new Error("Missing email parameter");
-      
-      initSqlDatabase();
-      var conn = getDbConnection();
-      var checkStmt = conn.prepareStatement("SELECT passcode FROM users WHERE email = ?");
-      checkStmt.setString(1, email.toString().trim());
-      var checkRes = checkStmt.executeQuery();
-      
-      if (!checkRes.next()) throw new Error("User not found");
-      
-      var storedPasscode = checkRes.getString("passcode");
-      MailApp.sendEmail(
-        email, 
-        "IEEE SB Financial Portal - Passcode Recovery", 
-        "Hello,\n\nYour access passcode for IEEE SB Financial Portal is: " + storedPasscode + "\n\nRegards,\nSystem Administrator"
-      );
-      response = { success: true, message: "Passcode has been emailed to you." };
-      checkRes.close();
-      checkStmt.close();
-      conn.close();
-      
-    } else if (action === 'getLoginLogs') {
-      initSqlDatabase();
-      var conn = getDbConnection();
-      var checkStmt = conn.prepareStatement("SELECT email, action, timestamp FROM login_logs ORDER BY id DESC LIMIT 50");
-      var checkRes = checkStmt.executeQuery();
-      var logsList = [];
-      while (checkRes.next()) {
-        logsList.push({
-          email: checkRes.getString("email"),
-          action: checkRes.getString("action"),
-          timestamp: checkRes.getString("timestamp")
-        });
-      }
-      response = { success: true, logs: logsList };
-      checkRes.close();
-      checkStmt.close();
-      conn.close();
-      
-    } else if (action === 'getUsersList') {
-      initSqlDatabase();
-      var conn = getDbConnection();
-      var checkStmt = conn.prepareStatement("SELECT email FROM users ORDER BY email ASC");
-      var checkRes = checkStmt.executeQuery();
-      var usersList = [];
-      while (checkRes.next()) {
-        usersList.push(checkRes.getString("email"));
-      }
-      response = { success: true, users: usersList };
-      checkRes.close();
-      checkStmt.close();
-      conn.close();
+
     } else {
       // Default: show welcome message
       response = { 
@@ -339,53 +128,29 @@ function doPost(e) {
       deleteEventSheet(ss, yearName);
       response = { success: true, message: "Year '" + yearName + "' deleted successfully.", events: getBookKeepingSheetsList(ss) };
       
-    } else if (action === 'saveUserAccount') {
+    } else if (action === 'sendHostEmail') {
+      var email = data.email;
+      var otp = data.otp;
+      if (!email || !otp) throw new Error("Missing parameters for sendHostEmail");
+      
+      MailApp.sendEmail(
+        HOST_EMAIL,
+        "IEEE SB Financial Portal - Login Authorization Request",
+        "Hello Admin/Host,\n\nA login attempt has been initiated for user: " + email + ".\n\nTo authorize this secure session, please share the following verification code with them:\n\nVerification Code: " + otp + "\n\nThis security code will expire in 10 minutes.\n\nRegards,\nPortal Security System"
+      );
+      response = { success: true, message: "Host authorization code email dispatched." };
+      
+    } else if (action === 'sendRecoveryEmail') {
       var email = data.email;
       var passcode = data.passcode;
-      var question = data.security_question;
-      var answer = data.security_answer;
+      if (!email || !passcode) throw new Error("Missing parameters for sendRecoveryEmail");
       
-      if (!email || !passcode) throw new Error("Missing email or passcode");
-      
-      initSqlDatabase();
-      var conn = getDbConnection();
-      var checkStmt = conn.prepareStatement("SELECT COUNT(*) FROM users WHERE email = ?");
-      checkStmt.setString(1, email.toString().trim());
-      var checkRes = checkStmt.executeQuery();
-      var count = 0;
-      if (checkRes.next()) {
-        count = checkRes.getInt(1);
-      }
-      checkRes.close();
-      checkStmt.close();
-      
-      if (count === 0) {
-        var insertStmt = conn.prepareStatement("INSERT INTO users (email, passcode, security_question, security_answer) VALUES (?, ?, ?, ?)");
-        insertStmt.setString(1, email.toString().trim());
-        insertStmt.setString(2, passcode.toString().trim());
-        insertStmt.setString(3, question || "What is the default recovery code?");
-        insertStmt.setString(4, answer || "IEEE@2026");
-        insertStmt.executeUpdate();
-        insertStmt.close();
-      } else {
-        var updateStmt = conn.prepareStatement("UPDATE users SET passcode = ?, security_question = ?, security_answer = ? WHERE email = ?");
-        updateStmt.setString(1, passcode.toString().trim());
-        updateStmt.setString(2, question || "What is the default recovery code?");
-        updateStmt.setString(3, answer || "IEEE@2026");
-        updateStmt.setString(4, email.toString().trim());
-        updateStmt.executeUpdate();
-        updateStmt.close();
-      }
-      conn.close();
-      response = { success: true, message: "User account saved successfully." };
-      
-    } else if (action === 'logUserLogout') {
-      var email = data.email;
-      if (!email) throw new Error("Missing email parameter");
-      
-      initSqlDatabase();
-      logUserSessionSql(email, "Logout");
-      response = { success: true, message: "Logout logged successfully." };
+      MailApp.sendEmail(
+        email, 
+        "IEEE SB Financial Portal - Passcode Recovery", 
+        "Hello,\n\nYour access passcode for IEEE SB Financial Portal is: " + passcode + "\n\nRegards,\nSystem Administrator"
+      );
+      response = { success: true, message: "Recovery email dispatched." };
     } else {
       throw new Error("Unknown action: " + action);
     }
@@ -1255,102 +1020,3 @@ function createBookKeepingSheet(ss, yearName) {
   sheet.setHiddenGridlines(false);
 }
 
-/**
- * SQL Database helpers & Initialization sequence
- */
-
-/**
- * Initializes tables in the SQL Database.
- * Runs query statements to construct 'users' and 'login_logs' if they are missing.
- * Seeds the default 'admin@ieee.org' account if the user table is empty.
- */
-function initSqlDatabase() {
-  var conn;
-  var stmt;
-  try {
-    conn = getDbConnection();
-    stmt = conn.createStatement();
-    
-    // Create users table
-    stmt.execute(
-      "CREATE TABLE IF NOT EXISTS users (" +
-      "email VARCHAR(255) PRIMARY KEY, " +
-      "passcode VARCHAR(255) NOT NULL, " +
-      "security_question VARCHAR(255), " +
-      "security_answer VARCHAR(255), " +
-      "otp_code VARCHAR(10), " +
-      "otp_expiry VARCHAR(50)" +
-      ")"
-    );
-    
-    // Migration: Add OTP columns to existing 'users' table if they don't exist
-    try {
-      stmt.execute("ALTER TABLE users ADD COLUMN otp_code VARCHAR(10)");
-    } catch(e) {}
-    try {
-      stmt.execute("ALTER TABLE users ADD COLUMN otp_expiry VARCHAR(50)");
-    } catch(e) {}
-    
-    // Create login_logs table
-    stmt.execute(
-      "CREATE TABLE IF NOT EXISTS login_logs (" +
-      "id SERIAL PRIMARY KEY, " +
-      "email VARCHAR(255) NOT NULL, " +
-      "action VARCHAR(50) NOT NULL, " +
-      "timestamp VARCHAR(50) NOT NULL" +
-      ")"
-    );
-    
-    // Check if user table is empty, if so, seed default admin
-    var checkStmt = conn.prepareStatement("SELECT COUNT(*) FROM users");
-    var checkRes = checkStmt.executeQuery();
-    var count = 0;
-    if (checkRes.next()) {
-      count = checkRes.getInt(1);
-    }
-    checkRes.close();
-    checkStmt.close();
-    
-    if (count === 0) {
-      var insertStmt = conn.prepareStatement("INSERT INTO users (email, passcode, security_question, security_answer) VALUES (?, ?, ?, ?)");
-      insertStmt.setString(1, "admin@ieee.org");
-      insertStmt.setString(2, "IEEE@2026");
-      insertStmt.setString(3, "What is the default recovery code?");
-      insertStmt.setString(4, "IEEE@2026");
-      insertStmt.executeUpdate();
-      insertStmt.close();
-    }
-    
-  } catch (err) {
-    Logger.log("initSqlDatabase failed: " + err.message);
-    throw new Error("SQL Database connection successful but schema initialization failed: " + err.message);
-  } finally {
-    if (stmt) try { stmt.close(); } catch(e) {}
-    if (conn) try { conn.close(); } catch(e) {}
-  }
-}
-
-/**
- * Appends a row containing the user's email, action (Login/Logout), and the current timestamp to the login_logs table.
- */
-function logUserSessionSql(email, action) {
-  var conn;
-  var stmt;
-  try {
-    conn = getDbConnection();
-    
-    var timeZone = Session.getScriptTimeZone() || "GMT+5:30";
-    var formattedDate = Utilities.formatDate(new Date(), timeZone, "yyyy-MM-dd HH:mm:ss");
-    
-    stmt = conn.prepareStatement("INSERT INTO login_logs (email, action, timestamp) VALUES (?, ?, ?)");
-    stmt.setString(1, email.toString().trim());
-    stmt.setString(2, action.toString().trim());
-    stmt.setString(3, formattedDate);
-    stmt.executeUpdate();
-  } catch (err) {
-    Logger.log("Failed to insert audit log in SQL: " + err.message);
-  } finally {
-    if (stmt) try { stmt.close(); } catch(e) {}
-    if (conn) try { conn.close(); } catch(e) {}
-  }
-}

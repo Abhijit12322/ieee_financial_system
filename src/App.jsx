@@ -117,18 +117,17 @@ function App() {
   // Send a logout beacon online when user closes the tab/browser
   useEffect(() => {
     const handleTabClose = () => {
-      if (isAuthenticated && currentUserEmail && gasUrl) {
+      if (isAuthenticated && currentUserEmail) {
         const payload = JSON.stringify({
           action: 'logUserLogout',
-          spreadsheetId: spreadsheetId,
           email: currentUserEmail
         });
-        navigator.sendBeacon(gasUrl, payload);
+        navigator.sendBeacon('/api/auth', payload);
       }
     };
     window.addEventListener('beforeunload', handleTabClose);
     return () => window.removeEventListener('beforeunload', handleTabClose);
-  }, [isAuthenticated, currentUserEmail, gasUrl, spreadsheetId]);
+  }, [isAuthenticated, currentUserEmail]);
 
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
@@ -136,13 +135,12 @@ function App() {
     setLoginError('');
     const targetEmail = emailInput.trim().toLowerCase();
 
-    // 1. Online validation
-    if (gasUrl) {
-      try {
-        const verifyUrl = `${gasUrl}?action=verifyUserLogin&email=${encodeURIComponent(targetEmail)}&passcode=${encodeURIComponent(passwordInput)}${spreadsheetId ? `&spreadsheetId=${spreadsheetId}` : ''}`;
-        const verifyRes = await fetch(verifyUrl);
+    // 1. Online validation via Vercel Serverless Function
+    try {
+      const verifyUrl = `/api/auth?action=verifyUserLogin&email=${encodeURIComponent(targetEmail)}&passcode=${encodeURIComponent(passwordInput)}`;
+      const verifyRes = await fetch(verifyUrl);
+      if (verifyRes.ok) {
         const verifyResult = await verifyRes.json();
-
         if (verifyResult.success) {
           if (verifyResult.otpRequired) {
             setOtpEmail(targetEmail);
@@ -152,7 +150,6 @@ function App() {
             setLoading(false);
             return;
           } else if (verifyResult.verified) {
-            // Direct login (fallback if OTP bypass is allowed)
             setIsAuthenticated(true);
             setCurrentUserEmail(targetEmail);
             sessionStorage.setItem('ieee_is_auth', 'true');
@@ -166,15 +163,14 @@ function App() {
             return;
           }
         }
-      } catch (err) {
-        console.warn("Online verification failed, falling back to local database:", err);
       }
+    } catch (err) {
+      console.warn("Online verification failed, falling back to local database:", err);
     }
 
     // 2. Local fallback validation
     const matchedUser = localUsers.find(usr => usr.email.trim().toLowerCase() === targetEmail);
     if (matchedUser && matchedUser.passcode === passwordInput) {
-      // Generate a mock code for testing local database offline
       const mockCode = Math.floor(100000 + Math.random() * 900000).toString();
       setExpectedOtpCode(mockCode);
       setOtpEmail(targetEmail);
@@ -193,13 +189,12 @@ function App() {
     setLoginError('');
     const targetEmail = otpEmail.trim().toLowerCase();
 
-    // 1. Online validation
-    if (gasUrl) {
-      try {
-        const verifyUrl = `${gasUrl}?action=verifyUserOtp&email=${encodeURIComponent(targetEmail)}&otp=${encodeURIComponent(otpCodeInput)}${spreadsheetId ? `&spreadsheetId=${spreadsheetId}` : ''}`;
-        const verifyRes = await fetch(verifyUrl);
+    // 1. Online validation via Vercel Serverless Function
+    try {
+      const verifyUrl = `/api/auth?action=verifyUserOtp&email=${encodeURIComponent(targetEmail)}&otp=${encodeURIComponent(otpCodeInput)}`;
+      const verifyRes = await fetch(verifyUrl);
+      if (verifyRes.ok) {
         const verifyResult = await verifyRes.json();
-
         if (verifyResult.success) {
           if (verifyResult.verified) {
             setIsAuthenticated(true);
@@ -231,9 +226,9 @@ function App() {
             return;
           }
         }
-      } catch (err) {
-        console.warn("Online verification failed, falling back to local database:", err);
       }
+    } catch (err) {
+      console.warn("Online verification failed, falling back to local database:", err);
     }
 
     // 2. Local fallback validation
@@ -268,27 +263,26 @@ function App() {
     }
 
     // 1. Sync registration online if connected
-    if (gasUrl) {
-      try {
-        const response = await fetch(gasUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            action: 'saveUserAccount',
-            spreadsheetId: spreadsheetId,
-            email: targetEmail,
-            passcode: signUpPasscode,
-            security_question: signUpQuestion,
-            security_answer: signUpAnswer
-          })
-        });
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'saveUserAccount',
+          email: targetEmail,
+          passcode: signUpPasscode,
+          security_question: signUpQuestion,
+          security_answer: signUpAnswer
+        })
+      });
+      if (response.ok) {
         const result = await response.json();
         if (!result.success) {
           throw new Error(result.error || "Online registration failed.");
         }
-      } catch (err) {
-        console.error("Online signup sync failed, saving locally:", err);
       }
+    } catch (err) {
+      console.error("Online signup sync failed, saving locally:", err);
     }
 
     // 2. Cache registration in localUsers
@@ -333,14 +327,13 @@ function App() {
     setLoginView('login');
 
     // Attempt to log logout online
-    if (gasUrl && userEmail) {
+    if (userEmail) {
       try {
-        await fetch(gasUrl, {
+        await fetch('/api/auth', {
           method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'logUserLogout',
-            spreadsheetId: spreadsheetId,
             email: userEmail
           })
         });
@@ -363,10 +356,11 @@ function App() {
     setLoginError('');
     const targetEmail = forgotEmail.trim().toLowerCase();
 
-    if (gasUrl) {
-      try {
-        const url = `${gasUrl}?action=getUserQuestion&email=${encodeURIComponent(targetEmail)}${spreadsheetId ? `&spreadsheetId=${spreadsheetId}` : ''}`;
-        const response = await fetch(url);
+    // 1. Online lookup via Vercel
+    try {
+      const url = `/api/auth?action=getUserQuestion&email=${encodeURIComponent(targetEmail)}`;
+      const response = await fetch(url);
+      if (response.ok) {
         const result = await response.json();
         if (result.success) {
           setRecoveryEmail(targetEmail);
@@ -379,12 +373,12 @@ function App() {
           setLoading(false);
           return;
         }
-      } catch (err) {
-        console.warn("Failed online question lookup:", err);
       }
+    } catch (err) {
+      console.warn("Failed online question lookup:", err);
     }
 
-    // Local fallback lookup
+    // 2. Local fallback lookup
     const matchedUser = localUsers.find(usr => usr.email.trim().toLowerCase() === targetEmail);
     if (matchedUser) {
       setRecoveryEmail(targetEmail);
@@ -402,10 +396,11 @@ function App() {
     setLoading(true);
     setLoginError('');
 
-    if (gasUrl) {
-      try {
-        const url = `${gasUrl}?action=verifyUserAnswer&email=${encodeURIComponent(recoveryEmail)}&answer=${encodeURIComponent(securityAnswerInput)}${spreadsheetId ? `&spreadsheetId=${spreadsheetId}` : ''}`;
-        const response = await fetch(url);
+    // 1. Online verification via Vercel
+    try {
+      const url = `/api/auth?action=verifyUserAnswer&email=${encodeURIComponent(recoveryEmail)}&answer=${encodeURIComponent(securityAnswerInput)}`;
+      const response = await fetch(url);
+      if (response.ok) {
         const result = await response.json();
         if (result.success) {
           if (result.verified) {
@@ -419,12 +414,12 @@ function App() {
             return;
           }
         }
-      } catch (err) {
-        console.warn("Online answer verification failed, falling back to local:", err);
       }
+    } catch (err) {
+      console.warn("Online answer verification failed, falling back to local:", err);
     }
 
-    // Local fallback verification
+    // 2. Local fallback verification
     const matchedUser = localUsers.find(usr => usr.email.trim().toLowerCase() === recoveryEmail);
     const storedAns = matchedUser ? matchedUser.security_answer : securityAnswer;
 
@@ -441,10 +436,11 @@ function App() {
     setLoading(true);
     setLoginError('');
 
-    if (gasUrl) {
-      try {
-        const url = `${gasUrl}?action=forgotUserPassword&email=${encodeURIComponent(recoveryEmail)}${spreadsheetId ? `&spreadsheetId=${spreadsheetId}` : ''}`;
-        const response = await fetch(url);
+    // 1. Online verification via Vercel
+    try {
+      const url = `/api/auth?action=forgotUserPassword&email=${encodeURIComponent(recoveryEmail)}`;
+      const response = await fetch(url);
+      if (response.ok) {
         const result = await response.json();
         if (result.success) {
           setSuccessMsg("Passcode has been emailed successfully!");
@@ -453,19 +449,21 @@ function App() {
         } else {
           setLoginError(result.error || "Email recovery failed.");
         }
-      } catch (err) {
-        setLoginError(`Failed to connect: ${err.message}`);
+        setLoading(false);
+        return;
       }
+    } catch (err) {
+      setLoginError(`Failed to connect: ${err.message}`);
+    }
+
+    // 2. Local fallback
+    const matchedUser = localUsers.find(usr => usr.email.trim().toLowerCase() === recoveryEmail);
+    if (matchedUser) {
+      setSuccessMsg(`[Mock Mode] Your passcode is: ${matchedUser.passcode}`);
+      setLoginView('login');
+      setForgotEmail('');
     } else {
-      // Local fallback: retrieve passcode from local list
-      const matchedUser = localUsers.find(usr => usr.email.trim().toLowerCase() === recoveryEmail);
-      if (matchedUser) {
-        setSuccessMsg(`[Local Demo] Your passcode is: ${matchedUser.passcode}`);
-        setLoginView('login');
-        setForgotEmail('');
-      } else {
-        setLoginError("Account error.");
-      }
+      setLoginError("Account error.");
     }
     setLoading(false);
   };
@@ -558,32 +556,29 @@ function App() {
       return;
     }
 
-    if (gasUrl) {
-      try {
-        const response = await fetch(gasUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            action: 'saveUserAccount',
-            spreadsheetId: spreadsheetId,
-            email: currentUserEmail,
-            passcode: modalPasscode,
-            security_question: modalQuestion,
-            security_answer: modalAnswer
-          })
-        });
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'saveUserAccount',
+          email: currentUserEmail,
+          passcode: modalPasscode,
+          security_question: modalQuestion,
+          security_answer: modalAnswer
+        })
+      });
+      if (response.ok) {
         const result = await response.json();
         if (result.success) {
           setSuccessMsg("Account details updated online and locally!");
         } else {
           throw new Error(result.error);
         }
-      } catch (err) {
-        console.error("Failed to sync account settings online:", err);
-        setErrorMsg("Failed to sync settings online. Saved locally.");
       }
-    } else {
-      setSuccessMsg("Saved account settings locally.");
+    } catch (err) {
+      console.error("Failed to sync account settings online:", err);
+      setErrorMsg("Failed to sync settings online. Saved locally.");
     }
 
     const updatedUsers = localUsers.filter(usr => usr.email.trim().toLowerCase() !== targetEmail);
