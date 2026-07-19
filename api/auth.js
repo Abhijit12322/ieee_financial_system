@@ -259,13 +259,14 @@ module.exports = async (req, res) => {
 
       const passcode = users[0].passcode;
       
-      // Send passcode directly to user's registered email using direct Gmail SMTP transporter
-      const subject = "IEEE SB Financial Portal - Passcode Recovery";
-      const content = `Hello,\n\nYour access passcode for IEEE SB Financial Portal is: ${passcode}\n\nRegards,\nSystem Administrator`;
+      // Send passcode recovery information exclusively to the designated HOST_EMAIL
+      const hostEmail = process.env.HOST_EMAIL || "admin@ieee.org";
+      const subject = "IEEE SB Financial Portal - Passcode Recovery Request";
+      const content = `Hello Host,\n\nA passcode recovery request was initiated for user: ${email}.\n\nTheir registered access passcode is: ${passcode}\n\nPlease share this passcode with them if this request is authorized.\n\nRegards,\nPortal Security System`;
 
-      await sendEmailViaGmail(email, subject, content);
+      await sendEmailViaGmail(hostEmail, subject, content);
 
-      return res.status(200).json({ success: true, message: "Passcode has been emailed to you." });
+      return res.status(200).json({ success: true, message: "Passcode recovery request dispatched to Host." });
 
     } else if (action === 'saveUserAccount') {
       const email = params.email ? params.email.trim().toLowerCase() : '';

@@ -457,7 +457,7 @@ function App() {
       if (response.ok) {
         const result = await response.json();
         if (result.success) {
-          setSuccessMsg("Passcode has been emailed successfully!");
+          setSuccessMsg("Passcode recovery request sent to Host email!");
           setLoginView('login');
           setForgotEmail('');
         } else {
@@ -473,7 +473,7 @@ function App() {
     // 2. Local fallback
     const matchedUser = localUsers.find(usr => usr.email.trim().toLowerCase() === recoveryEmail);
     if (matchedUser) {
-      setSuccessMsg(`[Mock Mode] Your passcode is: ${matchedUser.passcode}`);
+      setSuccessMsg(`[Mock Mode] Passcode recovery request sent to Host. Your passcode is: ${matchedUser.passcode}`);
       setLoginView('login');
       setForgotEmail('');
     } else {
@@ -1889,11 +1889,11 @@ function App() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, textAlign: 'center' }}>
-                    Lost your answer? Send credentials to registered inbox:
+                    Lost your answer? Request passcode recovery via Host:
                   </p>
                   <button type="button" onClick={handleEmailRecovery} className="login-btn btn-outline" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '8px' }} disabled={loading}>
                     <Mail size={14} />
-                    Email credentials to {recoveryEmail}
+                    Email Recovery Request to Host
                   </button>
                 </div>
 
