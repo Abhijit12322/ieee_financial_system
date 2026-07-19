@@ -1,5 +1,5 @@
-const { neon } = require('@neondatabase/serverless');
-const nodemailer = require('nodemailer');
+import { neon } from '@neondatabase/serverless';
+import nodemailer from 'nodemailer';
 
 // Helper function to initialize database tables and apply migrations
 async function initDbSchema(sql) {
@@ -85,7 +85,7 @@ async function sendEmailViaGmail(toEmail, subject, textContent) {
   }
 }
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
   // CORS configuration
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
