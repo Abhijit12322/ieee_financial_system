@@ -195,6 +195,7 @@ export default async (req, res) => {
 
       // Send OTP code to the designated HOST_EMAIL (falls back to SENDER_EMAIL if not set)
       const hostEmail = process.env.HOST_EMAIL || process.env.SENDER_EMAIL || "admin@ieee.org";
+      console.log(`[SMTP Debug] Attempting to send registration OTP to: ${hostEmail}`);
       const subject = "IEEE SB Financial Portal - Registration Authorization Request";
       const content = `Hello Host,\n\nA registration attempt was initiated for user: ${email}.\n\nTo authorize their account creation, please share the following verification code with them:\n\nVerification Code: ${otp}\n\nThis security code will expire in 10 minutes.\n\nRegards,\nPortal Security System`;
 
@@ -278,6 +279,7 @@ export default async (req, res) => {
       
       // Send passcode recovery information exclusively to the designated HOST_EMAIL (falls back to SENDER_EMAIL if not set)
       const hostEmail = process.env.HOST_EMAIL || process.env.SENDER_EMAIL || "admin@ieee.org";
+      console.log(`[SMTP Debug] Attempting to send recovery to: ${hostEmail}`);
       const subject = "IEEE SB Financial Portal - Passcode Recovery Request";
       // Note: Hashed passwords cannot be decrypted. The Host will be prompted that the passcode is encrypted and must be reset via security question or direct DB.
       const content = `Hello Host,\n\nA passcode recovery request was initiated for user: ${email}.\n\nNote: The user passcode is securely encrypted (hashed via SHA-256) inside the database. They must answer their security question to reset it, or you can clear it in the database.\n\nRegards,\nPortal Security System`;
