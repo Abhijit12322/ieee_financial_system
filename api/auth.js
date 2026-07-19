@@ -1,5 +1,12 @@
 import { neon } from '@neondatabase/serverless';
 import nodemailer from 'nodemailer';
+import crypto from 'crypto';
+
+// Helper function to hash passcodes using SHA-256 for secure encryption in the database
+function hashPasscode(passcode) {
+  if (!passcode) return '';
+  return crypto.createHash('sha256').update(passcode).digest('hex');
+}
 
 // Helper function to initialize database tables and apply migrations
 async function initDbSchema(sql) {
@@ -32,14 +39,14 @@ async function initDbSchema(sql) {
       await sql(`ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT FALSE`);
     } catch (e) {}
 
-    // Seed default admin if table is empty
+    // Seed default admin if table is empty (passcode is encrypted with SHA-256)
     const countRes = await sql(`SELECT COUNT(*) FROM users`);
     const count = parseInt(countRes[0].count);
     if (count === 0) {
       await sql(`
         INSERT INTO users (email, passcode, security_question, security_answer, is_verified)
         VALUES ($1, $2, $3, $4, TRUE)
-      `, ['admin@ieee.org', 'IEEE@2026', 'What is the default recovery code?', 'IEEE@2026']);
+      `, ['admin@ieee.org', hashPasscode('IEEE@2026'), 'What is the default recovery code?', 'IEEE@2026']);
     } else {
       // Ensure seed admin is always verified
       await sql(`UPDATE users SET is_verified = TRUE WHERE email = $1`, ['admin@ieee.org']);
@@ -53,10 +60,11 @@ async function initDbSchema(sql) {
   }
 }
 
-// Mail Dispatcher using Gmail App Password via SMTP
+// Mail Dispatcher using Gmail App Password via SMTP (port 465)
 async function sendEmailViaGmail(toEmail, subject, textContent) {
   const gmailUser = process.env.SENDER_EMAIL;
-  const gmailAppPass = process.env.SENDER_PASSWORD;
+  // Automatically strip any spaces from Gmail App Password (usually pasted as "abcd efgh ijkl mnop")
+  const gmailAppPass = process.env.SENDER_PASSWORD ? process.env.SENDER_PASSWORD.replace(/\s+/g, '') : '';
 
   if (!gmailUser || !gmailAppPass) {
     console.warn("SMTP credentials (SENDER_EMAIL / SENDER_PASSWORD) not configured in environment variables. Email bypassed.");
@@ -65,7 +73,9 @@ async function sendEmailViaGmail(toEmail, subject, textContent) {
 
   try {
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true, // secure connection via SSL
       auth: {
         user: gmailUser,
         pass: gmailAppPass
@@ -126,7 +136,8 @@ export default async (req, res) => {
       }
 
       const user = users[0];
-      if (user.passcode !== passcode) {
+      // Compare entered passcode encrypted hash with stored encrypted hash
+      if (user.passcode !== hashPasscode(passcode)) {
         return res.status(200).json({ success: true, verified: false, error: "Incorrect passcode" });
       }
 
@@ -168,18 +179,19 @@ export default async (req, res) => {
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const expiry = (new Date().getTime() + 10 * 60 * 1000).toString(); // Valid for 10 minutes
 
-      // Upsert temporary user state
+      // Upsert temporary user state (encrypt passcode before storing)
+      const encryptedPasscode = hashPasscode(passcode);
       if (checkRes.length === 0) {
         await sql(`
           INSERT INTO users (email, passcode, security_question, security_answer, otp_code, otp_expiry, is_verified)
           VALUES ($1, $2, $3, $4, $5, $6, FALSE)
-        `, [email, passcode, question || "What is the default recovery code?", answer || "IEEE@2026", otp, expiry]);
+        `, [email, encryptedPasscode, question || "What is the default recovery code?", answer || "IEEE@2026", otp, expiry]);
       } else {
         await sql(`
           UPDATE users 
           SET passcode = $1, security_question = $2, security_answer = $3, otp_code = $4, otp_expiry = $5, is_verified = FALSE
           WHERE email = $6
-        `, [passcode, question || "What is the default recovery code?", answer || "IEEE@2026", otp, expiry, email]);
+        `, [encryptedPasscode, question || "What is the default recovery code?", answer || "IEEE@2026", otp, expiry, email]);
       }
 
       // Send OTP code to the designated HOST_EMAIL
@@ -262,7 +274,8 @@ export default async (req, res) => {
       // Send passcode recovery information exclusively to the designated HOST_EMAIL
       const hostEmail = process.env.HOST_EMAIL || "admin@ieee.org";
       const subject = "IEEE SB Financial Portal - Passcode Recovery Request";
-      const content = `Hello Host,\n\nA passcode recovery request was initiated for user: ${email}.\n\nTheir registered access passcode is: ${passcode}\n\nPlease share this passcode with them if this request is authorized.\n\nRegards,\nPortal Security System`;
+      // Note: Hashed passwords cannot be decrypted. The Host will be prompted that the passcode is encrypted and must be reset via security question or direct DB.
+      const content = `Hello Host,\n\nA passcode recovery request was initiated for user: ${email}.\n\nNote: The user passcode is securely encrypted (hashed via SHA-256) inside the database. They must answer their security question to reset it, or you can clear it in the database.\n\nRegards,\nPortal Security System`;
 
       await sendEmailViaGmail(hostEmail, subject, content);
 
@@ -281,18 +294,19 @@ export default async (req, res) => {
       // Check if user exists
       const countRes = await sql(`SELECT COUNT(*) FROM users WHERE email = $1`, [email]);
       const count = parseInt(countRes[0].count);
+      const encryptedPasscode = hashPasscode(passcode);
 
       if (count === 0) {
         await sql(`
           INSERT INTO users (email, passcode, security_question, security_answer, is_verified)
           VALUES ($1, $2, $3, $4, TRUE)
-        `, [email, passcode, question || "What is the default recovery code?", answer || "IEEE@2026"]);
+        `, [email, encryptedPasscode, question || "What is the default recovery code?", answer || "IEEE@2026"]);
       } else {
         await sql(`
           UPDATE users 
           SET passcode = $1, security_question = $2, security_answer = $3, is_verified = TRUE
           WHERE email = $4
-        `, [passcode, question || "What is the default recovery code?", answer || "IEEE@2026", email]);
+        `, [encryptedPasscode, question || "What is the default recovery code?", answer || "IEEE@2026", email]);
       }
 
       return res.status(200).json({ success: true, message: "User account saved successfully." });
