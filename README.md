@@ -153,7 +153,7 @@ SENDER_PASSWORD=your-16-char-google-app-password
 
 ### 2. Google Apps Script Setup
 1. Open your Google Sheet, navigate to **Extensions** ➔ **Apps Script**.
-2. Replace code with `Code.gs`.
+2. Replace code with `Code.gs`and `appsscript.json`.
 3. Select **Deploy** ➔ **New deployment** (Type: `Web app`, Execute as: `Me`, Access: `Anyone`).
 4. Copy the Web App URL.
 
