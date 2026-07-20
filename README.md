@@ -1,66 +1,151 @@
 # IEEE Event Expenses & Bookkeeping Manager
 
-![IEEE SB Financial Portal Banner](banner.png)
-
-A premium, modern, and high-performance financial management web application designed for IEEE Student Branches. Secures account management via an external Neon PostgreSQL database and direct Vercel Serverless API, synced in real-time with Google Sheets.
+A modern, high-performance financial management web application built for IEEE Student Branches. Features real-time financial tracking, multi-layer host security verification, automated data logging, and seamless synchronization with Google Sheets and Neon PostgreSQL.
 
 ---
 
-## 🎨 Key Features & Innovations
+## 📸 System Screenshots
 
-- **Glassmorphic Cyber-Security UI**: Modern dark mode design featuring floating ambient glows, backdrop-blur saturation filters, and interactive auth tabs (Sign In / Create Account).
-- **Registration 2FA Authorization**: When a user registers, an account is created in a pending state (`is_verified = FALSE`). A 6-digit security code is dispatched exclusively to the **Host Email** to authorize access.
-- **Direct SMTP Mailer (Vercel Serverless)**: Utilizes Node `nodemailer` and Gmail App Passwords (`SENDER_EMAIL`, `SENDER_PASSWORD`) directly inside Vercel functions without relying on Google Apps Script quotas.
-- **SHA-256 Passcode Encryption**: All user passcodes are hashed using native SHA-256 cryptography before being stored in the Neon database.
-- **Direct Login Access**: Once an account is authorized by the Host, verified users log in directly with their passcode without needing secondary OTP steps.
-- **Automatic 60-Day Audit Pruning**: Automatically prunes security logs (`login_logs`) older than 60 days to maintain database health and privacy.
-- **Real-Time Spreadsheet Sync**: Syncs event expenses and bookkeeping budget tables in real-time with Google Sheets via Google Apps Script endpoints.
+### 1. Financial Dashboard
+![IEEE Financial Dashboard](docs/images/dashboard.png)
+
+### 2. Host 2FA Registration Authorization
+![Host 2FA Verification Screen](docs/images/host_otp_verification.png)
+
+### 3. Yearly Bookkeeping Module
+![Yearly Bookkeeping Module](docs/images/bookkeeping.png)
 
 ---
 
-## 🏗️ System Architecture
+## 🏛️ System Architecture
+
+The application adopts a **Decoupled Serverless Hybrid Architecture** designed for security, scalability, and ease of maintenance:
+
+1. **Frontend Layer (React + Vite + Vanilla CSS)**: Single Page Application deployed on Vercel delivering a modern glassmorphic interface with reactive state management.
+2. **Authentication & Security API (Vercel Serverless `/api/auth`)**: Handles user registration, SHA-256 passcode hashing, 2FA code generation, and session logging.
+3. **Database Layer (Neon PostgreSQL)**: Serverless relational database holding user accounts, encrypted credentials, security parameters, and 60-day audit logs.
+4. **Notification Gateway (Nodemailer + Gmail SMTP)**: Dispatches 6-digit authorization codes exclusively to the designated **Host Email**.
+5. **Spreadsheet Engine (Google Apps Script `Code.gs`)**: Coordinates real-time reads and writes between the web app and Google Sheets for event expense and bookkeeping ledgers.
+
+---
+
+### 1. High-Level Component Topology
 
 ```mermaid
-sequenceDiagram
-    participant React Client
-    participant Vercel Function (/api/auth)
-    participant Neon Postgres DB
-    participant Gmail SMTP (Nodemailer)
-    participant Apps Script (Code.gs)
-    participant Google Sheets
+graph TD
+    User([User Browser]) -->|HTTPS / UI Interactions| ReactApp[React SPA - Vercel]
     
-    %% Sign Up Flow
-    React Client->>Vercel Function (/api/auth): POST requestSignUpOtp
-    Vercel Function (/api/auth)->>Neon Postgres DB: Hash Passcode (SHA-256) & Store Pending User
-    Vercel Function (/api/auth)->>Gmail SMTP (Nodemailer): Send 6-Digit Code to HOST_EMAIL
-    Gmail SMTP (Nodemailer)-->>React Client: Return 2FA Code Prompt
+    subgraph Authentication & Security System
+        ReactApp -->|Auth Requests| VercelAPI[Vercel Serverless Function: /api/auth]
+        VercelAPI -->|SQL Queries| NeonDB[(Neon PostgreSQL Database)]
+        VercelAPI -->|SMTP TLS Port 587| GmailSMTP[Gmail SMTP Server]
+        GmailSMTP -->|Dispatches 6-Digit OTP| HostEmail([Master Host Email Inbox])
+    end
     
-    %% OTP Verification
-    React Client->>Vercel Function (/api/auth): GET verifySignUpOtp
-    Vercel Function (/api/auth)->>Neon Postgres DB: Update is_verified = TRUE
-    Neon Postgres DB-->>React Client: Registration Authorized & Direct Login
-    
-    %% Financial Operations
-    React Client->>Apps Script (Code.gs): GET/POST Event & Bookkeeping Data
-    Apps Script (Code.gs)->>Google Sheets: Read/Write Expenses & Balances
-    Google Sheets-->>React Client: Return Live Dashboard Figures
+    subgraph Financial Spreadsheet Engine
+        ReactApp -->|REST GET / POST| AppsScript[Google Apps Script: Code.gs]
+        AppsScript -->|Read / Write Ledger Data| GoogleSheets[(Google Sheets Databases)]
+    end
 ```
 
 ---
 
-## ⚙️ Environment Variables Configuration
+### 2. Registration & Host Authorization Sequence Flow
 
-Copy `.env.example` to `.env` for local development. Configure the following environment variables in your local environment and in your **Vercel Project Settings**:
+When a new user creates an account, access is held in a pending state (`is_verified = FALSE`) until the Host inputs the 6-digit verification code sent to their email inbox:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User Browser
+    participant API as Vercel Function (/api/auth)
+    participant DB as Neon PostgreSQL
+    participant SMTP as Gmail SMTP Server
+    actor Host as Master Host Inbox
+
+    User->>API: 1. Submit Registration (Email, Passcode, Security Question)
+    API->>API: 2. Hash Passcode using SHA-256
+    API->>DB: 3. Upsert User (is_verified = FALSE, OTP = random 6-digit)
+    API->>SMTP: 4. Dispatch Email with OTP Code to HOST_EMAIL
+    SMTP-->>Host: 5. Host Receives 6-Digit Verification Code
+    API-->>User: 6. Prompt User for 6-Digit Authorization Code
+    User->>Host: 7. Obtain 6-Digit Code from Host
+    User->>API: 8. Submit Verification Code
+    API->>DB: 9. Verify OTP & Expiry (Update is_verified = TRUE)
+    DB-->>API: 10. Verification Confirmed
+    API-->>User: 11. Complete Registration & Unlock Dashboard
+```
+
+---
+
+### 3. Financial Spreadsheet Synchronization Sequence Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User Browser
+    participant AppsScript as Google Apps Script (Code.gs)
+    participant Sheets as Google Sheets
+
+    User->>AppsScript: 1. Request Event Expenses / Bookkeeping Data
+    AppsScript->>Sheets: 2. Query Sheet Tabs (Expenses, Withdraws, Incomes)
+    Sheets-->>AppsScript: 3. Return Raw Cell Matrices
+    AppsScript-->>User: 4. Respond with JSON Formatted Ledger Items
+    User->>AppsScript: 5. Save Modified Expense Row
+    AppsScript->>Sheets: 6. Update Corresponding Sheet Cells & Calculate Totals
+    Sheets-->>User: 7. Confirm Real-Time Sync Success
+```
+
+---
+
+### 4. Database Relational Schema (ERD)
+
+```mermaid
+erDiagram
+    USERS {
+        VARCHAR_255 email PK "Primary Key"
+        VARCHAR_255 passcode "SHA-256 Hashed Credential"
+        VARCHAR_255 security_question "Recovery Question"
+        VARCHAR_255 security_answer "Recovery Answer"
+        VARCHAR_10 otp_code "Temporary 6-Digit Code"
+        VARCHAR_50 otp_expiry "Timestamp (10-Min Expiry)"
+        BOOLEAN is_verified "Authorization Flag"
+    }
+
+    LOGIN_LOGS {
+        SERIAL id PK "Primary Key"
+        VARCHAR_255 email "User Email"
+        VARCHAR_50 action "Login / Logout"
+        VARCHAR_50 timestamp "GMT+5:30 Timestamp"
+    }
+
+    USERS ||--o{ LOGIN_LOGS : "logs activity for"
+```
+
+---
+
+## 🔒 Security Model & Features
+
+- **Host Gatekeeper Verification**: Registration requires explicit Host authorization via a 6-digit code. No code is ever sent to standard user inboxes.
+- **SHA-256 Passcode Encryption**: All passcodes are hashed prior to storage in the relational database.
+- **Direct Authorized Logins**: Once an account is authorized by the Host, subsequent logins proceed directly without secondary verification steps.
+- **Automated 60-Day Log Pruning**: Serverless routines automatically purge entries in `login_logs` older than 60 days to preserve privacy and conserve storage.
+
+---
+
+## ⚙️ Environment Variables Reference
+
+Copy `.env.example` to `.env` for local development. Configure these variables in your **Vercel Project Settings**:
 
 ```env
 # Google Apps Script Web App URL (deployed from Code.gs)
 VITE_GAS_URL=https://script.google.com/macros/s/your-deployment-id/exec
 
-# Event Expenses & Bookkeeping Google Sheet IDs
+# Event Expenses & Bookkeeping Spreadsheet IDs
 VITE_SPREADSHEET_ID=your-spreadsheet-id-for-event-expenses
 VITE_BOOKKEEPING_SS_ID=your-spreadsheet-id-for-book-keeping
 
-# Neon PostgreSQL Connection String (Direct SQL link for Vercel API)
+# Neon Database Connection String (Direct SQL link for Vercel API)
 DATABASE_URL=postgresql://neondb_owner:password@ep-host.neon.tech/neondb?sslmode=require
 
 # Host Email (Receives all 2FA registration authorization codes)
@@ -73,36 +158,20 @@ SENDER_PASSWORD=your-16-char-google-app-password
 
 ---
 
-## 🚀 Deployment Guide
+## 🚀 Installation & Deployment Guide
 
-### 1. Deploy the Neon PostgreSQL Database
-1. Sign up at [Neon.tech](https://neon.tech/) and create a project.
-2. Copy the PostgreSQL connection URI from your Neon project dashboard.
+### 1. Neon PostgreSQL Database Setup
+1. Create a PostgreSQL database instance on [Neon.tech](https://neon.tech/).
+2. Copy your connection URI (`postgresql://...`).
 
-### 2. Deploy Google Apps Script (Code.gs)
+### 2. Google Apps Script Setup
 1. Open your Google Sheet, navigate to **Extensions** ➔ **Apps Script**.
-2. Paste the contents of `Code.gs` into your script editor.
-3. Deploy as a **Web App** (Execute as: `Me`, Who has access: `Anyone`).
-4. Copy the Web App URL (ends in `/exec`).
+2. Replace code with `Code.gs`.
+3. Select **Deploy** ➔ **New deployment** (Type: `Web app`, Execute as: `Me`, Access: `Anyone`).
+4. Copy the Web App URL.
 
-### 3. Deploy to Vercel
+### 3. Vercel Deployment
 1. Push this repository to GitHub.
-2. Import the project in [Vercel](https://vercel.com).
-3. Add all the environment variables listed above to your Vercel Project Settings.
-4. Deploy the site.
-
----
-
-## 🛡️ Database Schema & Audit Queries
-
-You can view and audit users or logs inside your Neon SQL Console:
-
-* **View All Registered Accounts:**
-  ```sql
-  SELECT email, is_verified, security_question FROM users;
-  ```
-
-* **View Login & Logout Audit Logs:**
-  ```sql
-  SELECT * FROM login_logs ORDER BY id DESC;
-  ```
+2. Import into [Vercel](https://vercel.com).
+3. Add the required Environment Variables under **Project Settings**.
+4. Trigger Deployment.
