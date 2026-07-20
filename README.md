@@ -4,19 +4,6 @@ A modern, high-performance financial management web application built for IEEE S
 
 ---
 
-## 📸 System Screenshots
-
-### 1. Financial Dashboard
-![IEEE Financial Dashboard](docs/images/dashboard.png)
-
-### 2. Host 2FA Registration Authorization
-![Host 2FA Verification Screen](docs/images/host_otp_verification.png)
-
-### 3. Yearly Bookkeeping Module
-![Yearly Bookkeeping Module](docs/images/bookkeeping.png)
-
----
-
 ## 🏛️ System Architecture
 
 The application adopts a **Decoupled Serverless Hybrid Architecture** designed for security, scalability, and ease of maintenance:
