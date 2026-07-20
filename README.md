@@ -1,101 +1,108 @@
 # IEEE Event Expenses & Bookkeeping Manager
 
-A premium, modern, and mobile-friendly web application designed to track event expected budgets and actual spent expenses, synced in real-time with Google Sheets and secured using an external SQL database backend (compatible with MySQL and Neon PostgreSQL).
+![IEEE SB Financial Portal Banner](banner.png)
+
+A premium, modern, and high-performance financial management web application designed for IEEE Student Branches. Secures account management via an external Neon PostgreSQL database and direct Vercel Serverless API, synced in real-time with Google Sheets.
 
 ---
 
-## 🎨 Premium Features
+## 🎨 Key Features & Innovations
 
-- **Redesigned Glassmorphic Login Portal**: Features floating background blobs, backdrop-blur saturation filters, and interactive auth tabs (Sign In / Create Account).
-- **Password Visibility Toggles**: Interactive eye icons toggle passcodes between password masking and plain-text.
-- **Forget Password Recovery**: Auto-emails forgotten passcodes after matching security questions in a step-by-step progress timeline.
-- **Vercel Environment Variables**: Connection parameters (GAS URL, Spreadsheet IDs) are managed via `.env` (locally) and Vercel Environment Variables (production), keeping credentials out of public repositories.
-- **Consolidated Backend Storage**: Expenses data is stored in Google Sheets, while credentials and session logs are managed securely in an external SQL database (e.g. Neon PostgreSQL).
+- **Glassmorphic Cyber-Security UI**: Modern dark mode design featuring floating ambient glows, backdrop-blur saturation filters, and interactive auth tabs (Sign In / Create Account).
+- **Registration 2FA Authorization**: When a user registers, an account is created in a pending state (`is_verified = FALSE`). A 6-digit security code is dispatched exclusively to the **Host Email** to authorize access.
+- **Direct SMTP Mailer (Vercel Serverless)**: Utilizes Node `nodemailer` and Gmail App Passwords (`SENDER_EMAIL`, `SENDER_PASSWORD`) directly inside Vercel functions without relying on Google Apps Script quotas.
+- **SHA-256 Passcode Encryption**: All user passcodes are hashed using native SHA-256 cryptography before being stored in the Neon database.
+- **Direct Login Access**: Once an account is authorized by the Host, verified users log in directly with their passcode without needing secondary OTP steps.
+- **Automatic 60-Day Audit Pruning**: Automatically prunes security logs (`login_logs`) older than 60 days to maintain database health and privacy.
+- **Real-Time Spreadsheet Sync**: Syncs event expenses and bookkeeping budget tables in real-time with Google Sheets via Google Apps Script endpoints.
 
 ---
 
-## 🏗️ Architecture
-
-This application consists of two parts:
-1. **Frontend (React + Vite + Vanilla CSS):** Deployed on Vercel. Configured via environment variables with a simplified account settings modal for personal profile passcode updates.
-2. **Backend (Google Apps Script + SQL Database):** Runs on Google's serverless environment, coordinating Sheets database writes and JDBC socket updates to your SQL database.
+## 🏗️ System Architecture
 
 ```mermaid
 sequenceDiagram
     participant React Client
-    participant Vercel Environment
+    participant Vercel Function (/api/auth)
+    participant Neon Postgres DB
+    participant Gmail SMTP (Nodemailer)
     participant Apps Script (Code.gs)
     participant Google Sheets
-    participant SQL DB (Neon)
     
-    React Client->>Vercel Environment: Read VITE_GAS_URL
-    React Client->>Apps Script (Code.gs): HTTPS Request (verifyUserLogin)
-    Apps Script (Code.gs)->>SQL DB (Neon): JDBC Query (Verify credentials)
-    SQL DB (Neon)-->>Apps Script (Code.gs): User matches
-    Apps Script (Code.gs)->>Google Sheets: Read/Write expense sheets
-    Apps Script (Code.gs)-->>React Client: Return dashboard data
+    %% Sign Up Flow
+    React Client->>Vercel Function (/api/auth): POST requestSignUpOtp
+    Vercel Function (/api/auth)->>Neon Postgres DB: Hash Passcode (SHA-256) & Store Pending User
+    Vercel Function (/api/auth)->>Gmail SMTP (Nodemailer): Send 6-Digit Code to HOST_EMAIL
+    Gmail SMTP (Nodemailer)-->>React Client: Return 2FA Code Prompt
+    
+    %% OTP Verification
+    React Client->>Vercel Function (/api/auth): GET verifySignUpOtp
+    Vercel Function (/api/auth)->>Neon Postgres DB: Update is_verified = TRUE
+    Neon Postgres DB-->>React Client: Registration Authorized & Direct Login
+    
+    %% Financial Operations
+    React Client->>Apps Script (Code.gs): GET/POST Event & Bookkeeping Data
+    Apps Script (Code.gs)->>Google Sheets: Read/Write Expenses & Balances
+    Google Sheets-->>React Client: Return Live Dashboard Figures
 ```
 
 ---
 
-## 🚀 Deployment Instructions
+## ⚙️ Environment Variables Configuration
 
-### Step 1: Deploy your SQL Database (Neon PostgreSQL)
-1. Sign up on [Neon.tech](https://neon.tech/) and create a project.
-2. In the console, retrieve your connection details. Note the host, database name (`neondb`), username, and password.
+Copy `.env.example` to `.env` for local development. Configure the following environment variables in your local environment and in your **Vercel Project Settings**:
 
-### Step 2: Deploy the Google Apps Script Backend
-1. Create a Google Sheet to track expenses.
-2. Go to **Extensions** ➔ **Apps Script**.
-3. Replace the contents of the script file with the code inside the local `Code.gs` file.
-4. Configure your database coordinates at the top of `Code.gs`:
-   ```javascript
-   var DB_URL = "jdbc:postgresql://your-neon-hostname.neon.tech/neondb?ssl=true&sslmode=require";
-   var DB_USER = "neondb_owner";
-   var DB_PASSWORD = "yourPasswordHere";
-   ```
-5. Click **Deploy** ➔ **New deployment**. Select **Web app** as type.
-   - **Execute as:** `Me (your-email@gmail.com)`
-   - **Who has access:** `Anyone`
-6. Authorize the permissions and copy the generated **Web App URL** (ends in `/exec`).
+```env
+# Google Apps Script Web App URL (deployed from Code.gs)
+VITE_GAS_URL=https://script.google.com/macros/s/your-deployment-id/exec
 
-### Step 3: Run the React Application Locally
-1. Copy the `.env.example` template into a new `.env` file:
-   ```bash
-   cp .env.example .env
-   ```
-2. Open `.env` and fill in your copied Apps Script Web App URL and Spreadsheet IDs:
-   ```env
-   VITE_GAS_URL=https://script.google.com/macros/s/.../exec
-   VITE_SPREADSHEET_ID=your-google-sheet-id
-   VITE_BOOKKEEPING_SS_ID=your-bookkeeping-sheet-id
-   ```
-3. Run the following terminal commands:
-   ```bash
-   npm install
-   npm run dev
-   ```
-4. Open `http://localhost:5173`. The application automatically reads connection parameters and logs you into the database portal.
+# Event Expenses & Bookkeeping Google Sheet IDs
+VITE_SPREADSHEET_ID=your-spreadsheet-id-for-event-expenses
+VITE_BOOKKEEPING_SS_ID=your-spreadsheet-id-for-book-keeping
 
-### Step 4: Deploying to Vercel
-1. Push your workspace files to a private GitHub repository.
-2. Import the repository in [Vercel](https://vercel.com).
-3. Under **Environment Variables**, configure the same keys:
-   - `VITE_GAS_URL`
-   - `VITE_SPREADSHEET_ID`
-   - `VITE_BOOKKEEPING_SS_ID`
+# Neon PostgreSQL Connection String (Direct SQL link for Vercel API)
+DATABASE_URL=postgresql://neondb_owner:password@ep-host.neon.tech/neondb?sslmode=require
+
+# Host Email (Receives all 2FA registration authorization codes)
+HOST_EMAIL=host@example.com
+
+# Direct Gmail SMTP Transporter Parameters
+SENDER_EMAIL=your-sender-gmail-account@gmail.com
+SENDER_PASSWORD=your-16-char-google-app-password
+```
+
+---
+
+## 🚀 Deployment Guide
+
+### 1. Deploy the Neon PostgreSQL Database
+1. Sign up at [Neon.tech](https://neon.tech/) and create a project.
+2. Copy the PostgreSQL connection URI from your Neon project dashboard.
+
+### 2. Deploy Google Apps Script (Code.gs)
+1. Open your Google Sheet, navigate to **Extensions** ➔ **Apps Script**.
+2. Paste the contents of `Code.gs` into your script editor.
+3. Deploy as a **Web App** (Execute as: `Me`, Who has access: `Anyone`).
+4. Copy the Web App URL (ends in `/exec`).
+
+### 3. Deploy to Vercel
+1. Push this repository to GitHub.
+2. Import the project in [Vercel](https://vercel.com).
+3. Add all the environment variables listed above to your Vercel Project Settings.
 4. Deploy the site.
 
 ---
 
-## 🛡️ Database Verification & Auditing
-Since settings pages do not display credential records for security, run standard SQL queries inside your database manager (e.g. phpMyAdmin, pgAdmin, DBeaver) to review audit details:
+## 🛡️ Database Schema & Audit Queries
 
-* **To see registered accounts:**
+You can view and audit users or logs inside your Neon SQL Console:
+
+* **View All Registered Accounts:**
   ```sql
-  SELECT * FROM users;
+  SELECT email, is_verified, security_question FROM users;
   ```
-* **To check logins and logouts:**
+
+* **View Login & Logout Audit Logs:**
   ```sql
   SELECT * FROM login_logs ORDER BY id DESC;
   ```
