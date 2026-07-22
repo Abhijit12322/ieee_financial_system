@@ -52,18 +52,7 @@ async function initDbSchema(sql) {
       await sql(`ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT FALSE`);
     } catch (e) {}
 
-    // Seed default admin if table is empty (passcode is encrypted with SHA-256)
-    const countRes = await sql(`SELECT COUNT(*) FROM users`);
-    const count = parseInt(countRes[0].count);
-    if (count === 0) {
-      await sql(`
-        INSERT INTO users (email, passcode, security_question, security_answer, is_verified)
-        VALUES ($1, $2, $3, $4, TRUE)
-      `, ['admin@ieee.org', hashPasscode('IEEE@2026'), 'What is the default recovery code?', 'IEEE@2026']);
-    } else {
-      // Ensure seed admin is always verified
-      await sql(`UPDATE users SET is_verified = TRUE WHERE email = $1`, ['admin@ieee.org']);
-    }
+
 
     // Automatically delete login logs older than 60 days to save space and maintain privacy
     const sixtyDaysAgo = new Date(new Date().getTime() - 60 * 24 * 60 * 60 * 1000 + 5.5 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
@@ -177,8 +166,8 @@ export default async (req, res) => {
       const question = params.security_question;
       const answer = params.security_answer;
 
-      if (!email || !passcode) {
-        return res.status(400).json({ success: false, error: "Missing email or passcode parameter" });
+      if (!email || !passcode || !question || !answer) {
+        return res.status(400).json({ success: false, error: "All parameters are required (email, passcode, security_question, security_answer)." });
       }
 
       // Check if user is already registered and verified
@@ -197,13 +186,13 @@ export default async (req, res) => {
         await sql(`
           INSERT INTO users (email, passcode, security_question, security_answer, otp_code, otp_expiry, is_verified)
           VALUES ($1, $2, $3, $4, $5, $6, FALSE)
-        `, [email, encryptedPasscode, question || "What is the default recovery code?", answer || "IEEE@2026", otp, expiry]);
+        `, [email, encryptedPasscode, question, answer, otp, expiry]);
       } else {
         await sql(`
           UPDATE users 
           SET passcode = $1, security_question = $2, security_answer = $3, otp_code = $4, otp_expiry = $5, is_verified = FALSE
           WHERE email = $6
-        `, [encryptedPasscode, question || "What is the default recovery code?", answer || "IEEE@2026", otp, expiry, email]);
+        `, [encryptedPasscode, question, answer, otp, expiry, email]);
       }
 
       // Send OTP code to the designated HOST_EMAIL (falls back to SENDER_EMAIL if not set)
@@ -313,8 +302,8 @@ export default async (req, res) => {
       const question = params.security_question;
       const answer = params.security_answer;
 
-      if (!email || !passcode) {
-        return res.status(400).json({ success: false, error: "Missing email or passcode parameters" });
+      if (!email || !passcode || !question || !answer) {
+        return res.status(400).json({ success: false, error: "Missing required parameters (email, passcode, security_question, security_answer)" });
       }
 
       // Check if user exists
@@ -326,13 +315,13 @@ export default async (req, res) => {
         await sql(`
           INSERT INTO users (email, passcode, security_question, security_answer, is_verified)
           VALUES ($1, $2, $3, $4, TRUE)
-        `, [email, encryptedPasscode, question || "What is the default recovery code?", answer || "IEEE@2026"]);
+        `, [email, encryptedPasscode, question, answer]);
       } else {
         await sql(`
           UPDATE users 
           SET passcode = $1, security_question = $2, security_answer = $3, is_verified = TRUE
           WHERE email = $4
-        `, [encryptedPasscode, question || "What is the default recovery code?", answer || "IEEE@2026", email]);
+        `, [encryptedPasscode, question, answer, email]);
       }
 
       return res.status(200).json({ success: true, message: "User account saved successfully." });
