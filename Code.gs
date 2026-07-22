@@ -126,6 +126,83 @@ function doPost(e) {
       
       deleteEventSheet(ss, yearName);
       response = { success: true, message: "Year '" + yearName + "' deleted successfully.", events: getBookKeepingSheetsList(ss) };
+    } else if (action === 'uploadBillImage') {
+      var eventName = data.eventName;
+      var fileName = data.fileName;
+      var fileData = data.fileData; // base64 string
+      var mimeType = data.mimeType || 'image/png';
+      var category = data.category || 'General';
+
+      if (!eventName || !fileName || !fileData) {
+        throw new Error("Missing eventName, fileName, or fileData for image upload");
+      }
+
+      // Decode base64
+      var bytes = Utilities.base64Decode(fileData);
+      var blob = Utilities.newBlob(bytes, mimeType, fileName);
+
+      // Find or create "IEEE Portal Bill Uploads" folder in Drive
+      var folderName = "IEEE Portal Bill Uploads";
+      var folders = DriveApp.getFoldersByName(folderName);
+      var folder;
+      if (folders.hasNext()) {
+        folder = folders.next();
+      } else {
+        folder = DriveApp.createFolder(folderName);
+      }
+
+      // Create event specific subfolder
+      var subFolderName = ss.getName() + " - " + eventName;
+      var subFolders = folder.getFoldersByName(subFolderName);
+      var subFolder;
+      if (subFolders.hasNext()) {
+        subFolder = subFolders.next();
+      } else {
+        subFolder = folder.createFolder(subFolderName);
+      }
+
+      // Save file
+      var file = subFolder.createFile(blob);
+      // Share so anyone with link can view (needed for web portal to display it)
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+      var fileUrl = file.getUrl();
+      // Embeddable link generator for Google Sheets IMAGE() formula
+      var fileId = file.getId();
+      var embedUrl = "https://docs.google.com/uc?export=view&id=" + fileId;
+
+      // Write to Google Sheet (row 5 is category, row 6 is filename, row 7 is image formula, row 8 is link)
+      var sheet = ss.getSheetByName(eventName);
+      if (sheet) {
+        var lastCol = sheet.getLastColumn();
+        var targetCol = 6; // Column F
+        if (lastCol >= 6) {
+          // Find next empty column starting from column F (6)
+          var row5Vals = sheet.getRange(5, 6, 1, lastCol - 5).getValues()[0];
+          for (var c = 0; c < row5Vals.length; c++) {
+            if (!row5Vals[c]) {
+              targetCol = 6 + c;
+              break;
+            }
+          }
+          if (targetCol === 6 && row5Vals[0]) {
+            targetCol = lastCol + 1;
+          }
+        }
+        
+        sheet.getRange(5, targetCol).setValue(category).setFontWeight("bold");
+        sheet.getRange(6, targetCol).setValue(fileName).setFontStyle("italic");
+        sheet.getRange(7, targetCol).setFormula('=IMAGE("' + embedUrl + '")');
+        sheet.getRange(8, targetCol).setValue(fileUrl);
+      }
+
+      response = { 
+        success: true, 
+        fileId: fileId,
+        fileUrl: fileUrl, 
+        embedUrl: embedUrl,
+        message: "Bill image uploaded successfully to Google Drive & synced to sheet." 
+      };
     } else {
       throw new Error("Unknown action: " + action);
     }

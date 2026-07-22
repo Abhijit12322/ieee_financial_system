@@ -991,7 +991,7 @@ function App() {
     setErrorMsg('');
     const activeSsId = getActiveSpreadsheetId('expenses', targetYear);
     if (!activeSsId) {
-      setEventData({ expenses: [] });
+      setEventData({ expenses: [], images: [] });
       setLoading(false);
       return;
     }
@@ -1002,7 +1002,8 @@ function App() {
         const result = await response.json();
         if (result.success) {
           setEventData({
-            expenses: result.data.expenses || []
+            expenses: result.data.expenses || [],
+            images: result.data.images || []
           });
         } else {
           throw new Error(result.error);
@@ -1022,7 +1023,8 @@ function App() {
     const data = JSON.parse(localStorage.getItem('ieee_mock_data')) || {};
     const itemData = data[eventName] || {};
     return {
-      expenses: itemData.expenses || []
+      expenses: itemData.expenses || [],
+      images: []
     };
   };
 
@@ -1062,6 +1064,67 @@ function App() {
       if (showFeedback) setSuccessMsg("Saved changes locally (Mock Database).");
     }
     setLoading(false);
+  };
+
+  const handleUploadBillFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      setErrorMsg("File size exceeds 10MB limit.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      setLoading(true);
+      setErrorMsg('');
+      try {
+        const base64Data = reader.result.split(',')[1];
+        const activeSsId = getActiveSpreadsheetId('expenses', selectedExpensesYear);
+        if (!activeSsId) {
+          throw new Error("No spreadsheet link configured for the selected season.");
+        }
+
+        const categoryInput = prompt("Enter bill category (e.g., Food, Decor, Printing, Travel):", "General");
+        if (categoryInput === null) {
+          setLoading(false);
+          return;
+        }
+
+        const response = await fetch(gasUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain'
+          },
+          body: JSON.stringify({
+            action: 'uploadBillImage',
+            spreadsheetId: activeSsId,
+            eventName: currentEvent,
+            fileName: file.name,
+            fileData: base64Data,
+            mimeType: file.type,
+            category: categoryInput.trim() || 'General'
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          setSuccessMsg("Bill uploaded successfully to Google Drive & synced to sheet!");
+          fetchEventData(currentEvent, selectedExpensesYear);
+        } else {
+          throw new Error(result.error);
+        }
+      } catch (err) {
+        console.error(err);
+        setErrorMsg("Upload failed: " + err.message);
+      }
+      setLoading(false);
+    };
+    reader.onerror = () => {
+      setErrorMsg("Failed to read file contents.");
+    };
+    reader.readAsDataURL(file);
   };
 
   const saveMockEventData = (eventName, expenses) => {
@@ -2587,6 +2650,72 @@ function App() {
                         </tbody>
                       </table>
                     </div>
+                  </section>
+
+                  {/* Event Bills & Invoices Gallery */}
+                  <section className="section-card" style={{ marginTop: '24px' }}>
+                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                      <h3 className="card-title">
+                        <ShoppingBag size={16} style={{ color: 'var(--primary)' }} />
+                        Event Bills & Invoices
+                      </h3>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <label className="btn btn-primary" style={{ cursor: 'pointer', padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', margin: 0 }}>
+                          <PlusCircle size={14} />
+                          Upload Bill to Drive
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            onChange={handleUploadBillFile}
+                            style={{ display: 'none' }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Image Cards List */}
+                    {!eventData.images || eventData.images.length === 0 ? (
+                      <div style={{ padding: '32px', textAlign: 'center', backgroundColor: 'var(--bg-page)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
+                        <p style={{ margin: 0, fontSize: '0.9rem' }}>No bills uploaded for this event yet.</p>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem' }}>Upload PNG/JPG invoices directly to secure Google Drive storage.</p>
+                      </div>
+                    ) : (
+                      <div className="images-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px', marginTop: '12px' }}>
+                        {eventData.images.map((img, idx) => (
+                          <div key={idx} className="image-card" style={{ display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-page)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden', transition: 'var(--transition)' }}>
+                            <div style={{ height: '140px', backgroundColor: 'rgba(0,0,0,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--border-color)', overflow: 'hidden', position: 'relative' }}>
+                              <img 
+                                src={img.imageUrl} 
+                                alt={img.category} 
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  e.target.parentNode.innerHTML = `<div style="font-size: 2rem; color: var(--text-muted)">📄</div>`;
+                                }}
+                              />
+                              <span style={{ position: 'absolute', top: '8px', left: '8px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', backgroundColor: 'var(--primary)', color: '#ffffff', padding: '2px 8px', borderRadius: '4px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                                {img.category}
+                              </span>
+                            </div>
+                            <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.3' }}>
+                                Bill #{idx + 1} ({img.category})
+                              </span>
+                              <a 
+                                href={img.imageUrl} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="btn btn-secondary" 
+                                style={{ display: 'block', textAlign: 'center', fontSize: '0.75rem', padding: '6px 0', textDecoration: 'none', color: 'var(--text-main)' }}
+                              >
+                                View Full Bill
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </section>
                 </>
               )}
