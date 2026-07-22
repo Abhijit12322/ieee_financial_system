@@ -18,6 +18,11 @@
   --text-muted: #64748B;
   --border-color: #E2E8F0;
   
+  --border: #E2E8F0;
+  --surface: #F1F5F9;
+  --surface-hover: #E2E8F0;
+  --text: #1E293B;
+  
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -37,6 +42,11 @@
     --text-muted: #94A3B8;
     --border-color: #334155;
     --accent: rgba(0, 133, 202, 0.15);
+    
+    --border: #334155;
+    --surface: #0F172A;
+    --surface-hover: #1E293B;
+    --text: #F8FAFC;
   }
 }
 
@@ -734,16 +744,15 @@ a {
 }
 
 .login-logo {
-  width: 64px;
+  width: auto;
+  max-width: 100%;
   height: 64px;
-  background: radial-gradient(circle, var(--secondary) 0%, var(--primary) 100%);
-  color: #ffffff;
-  border-radius: var(--radius-md);
+  background: transparent;
   margin: 0 auto 20px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 15px rgba(0, 133, 202, 0.4);
+  box-shadow: none;
 }
 
 .login-title {

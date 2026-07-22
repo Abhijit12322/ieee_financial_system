@@ -106,6 +106,15 @@ erDiagram
         VARCHAR_50 timestamp "GMT+5:30 Timestamp"
     }
 
+    YEARLY_SPREADSHEETS {
+        SERIAL id PK "Primary Key"
+        VARCHAR_20 year "Season Year"
+        VARCHAR_50 module_type "Module Identifier"
+        VARCHAR_255 spreadsheet_id "Spreadsheet ID"
+        TEXT spreadsheet_url "Spreadsheet URL"
+        VARCHAR_50 created_at "Creation Timestamp"
+    }
+
     USERS ||--o{ LOGIN_LOGS : "logs activity for"
 ```
 
@@ -128,8 +137,7 @@ Copy `.env.example` to `.env` for local development. Configure these variables i
 # Google Apps Script Web App URL (deployed from Code.gs)
 VITE_GAS_URL=https://script.google.com/macros/s/your-deployment-id/exec
 
-# Event Expenses & Bookkeeping Spreadsheet IDs
-VITE_SPREADSHEET_ID=your-spreadsheet-id-for-event-expenses
+# Default Book Keeping Spreadsheet ID (fallback for Yearly Book Keeping module)
 VITE_BOOKKEEPING_SS_ID=your-spreadsheet-id-for-book-keeping
 
 # Neon Database Connection String (Direct SQL link for Vercel API)

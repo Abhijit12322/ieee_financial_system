@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import logoImg from './ieee_logo.png';
 import {
   Plus,
   Trash2,
@@ -21,7 +22,10 @@ import {
   Mail,
   User,
   Eye,
-  EyeOff
+  EyeOff,
+  Link,
+  Save,
+  Calendar
 } from 'lucide-react';
 
 // Initial Mock Data (Expenses Module)
@@ -33,6 +37,15 @@ const MOCK_EVENT_DATA = {};
 const MOCK_BK_YEARS = [];
 
 const MOCK_BK_DATA = {};
+
+// Custom IEEE Diamond Logo Component rendering the uploaded logo image file with preserved aspect ratio
+const IeeeLogo = ({ size = 32, style = {} }) => (
+  <img
+    src={logoImg}
+    alt="IEEE Logo"
+    style={{ height: `${size}px`, width: 'auto', display: 'inline-block', verticalAlign: 'middle', objectFit: 'contain', ...style }}
+  />
+);
 
 function App() {
   // Navigation
@@ -53,23 +66,13 @@ function App() {
   // Local database of users (local mode fallback)
   const [localUsers, setLocalUsers] = useState(() => {
     const saved = localStorage.getItem('ieee_local_users');
-    if (saved) return JSON.parse(saved);
-    const defaultUsers = [
-      {
-        email: 'admin@ieee.org',
-        passcode: 'IEEE@2026',
-        security_question: 'What is the default recovery code?',
-        security_answer: 'IEEE@2026'
-      }
-    ];
-    localStorage.setItem('ieee_local_users', JSON.stringify(defaultUsers));
-    return defaultUsers;
+    return saved ? JSON.parse(saved) : [];
   });
 
   // Selected user for security recovery
   const [recoveryEmail, setRecoveryEmail] = useState('');
-  const [securityQuestion, setSecurityQuestion] = useState('What is the default recovery code?');
-  const [securityAnswer, setSecurityAnswer] = useState('IEEE@2026');
+  const [securityQuestion, setSecurityQuestion] = useState('');
+  const [securityAnswer, setSecurityAnswer] = useState('');
 
   // Login view states: 'login' | 'signup' | 'forgot' | 'forgot_verify' | 'reset_passcode' | 'otp_verify'
   const [loginView, setLoginView] = useState('login');
@@ -97,15 +100,29 @@ function App() {
   const [showSignUpConfirmPassword, setShowSignUpConfirmPassword] = useState(false);
 
   // Connection states
-  const [gasUrl, setGasUrl] = useState(() => 
+  const [gasUrl, setGasUrl] = useState(() =>
     localStorage.getItem('ieee_gas_url') || import.meta.env.VITE_GAS_URL || ''
   );
-  const [spreadsheetId, setSpreadsheetId] = useState(() => 
+  const [spreadsheetId, setSpreadsheetId] = useState(() =>
     localStorage.getItem('ieee_ss_id') || import.meta.env.VITE_SPREADSHEET_ID || ''
   );
-  const [bookkeepingSsId, setBookkeepingSsId] = useState(() => 
+  const [bookkeepingSsId, setBookkeepingSsId] = useState(() =>
     localStorage.getItem('ieee_bookkeeping_ss_id') || import.meta.env.VITE_BOOKKEEPING_SS_ID || ''
   );
+
+  // Dynamic Yearly Spreadsheet Links Management
+  const [yearlySpreadsheets, setYearlySpreadsheets] = useState(() => {
+    const saved = localStorage.getItem('ieee_yearly_spreadsheets');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [expensesSeasons, setExpensesSeasons] = useState(() => {
+    const saved = localStorage.getItem('ieee_expenses_seasons');
+    return saved ? JSON.parse(saved) : ['2026', '2025', '2024', '2027', '2028'];
+  });
+  const [selectedExpensesYear, setSelectedExpensesYear] = useState('2026');
+  const [linkInputYear, setLinkInputYear] = useState('2026');
+  const [linkInputModule, setLinkInputModule] = useState('expenses');
+  const [linkInputUrl, setLinkInputUrl] = useState('');
   const [isApiMode, setIsApiMode] = useState(false);
 
   useEffect(() => {
@@ -543,10 +560,14 @@ function App() {
   };
 
   // Settings Modal Edit States
+  const [settingsTab, setSettingsTab] = useState('security');
   const [modalPasscode, setModalPasscode] = useState('');
   const [modalQuestion, setModalQuestion] = useState('What is the default recovery code?');
   const [modalAnswer, setModalAnswer] = useState('');
   const [modalEmail, setModalEmail] = useState('');
+  const [modalGasUrl, setModalGasUrl] = useState('');
+  const [modalSpreadsheetId, setModalSpreadsheetId] = useState('');
+  const [modalBkSsId, setModalBkSsId] = useState('');
 
   const handleOpenSettings = () => {
     const targetEmail = currentUserEmail.trim().toLowerCase();
@@ -555,7 +576,23 @@ function App() {
     setModalPasscode(matchedUser ? matchedUser.passcode : 'IEEE@2026');
     setModalQuestion(matchedUser ? matchedUser.security_question : 'What is the default recovery code?');
     setModalAnswer(matchedUser ? matchedUser.security_answer : 'IEEE@2026');
+    setModalGasUrl(gasUrl);
+    setModalSpreadsheetId(spreadsheetId);
+    setModalBkSsId(bookkeepingSsId);
+    setLinkInputModule('expenses');
+    setSettingsTab('security');
     setShowSettings(true);
+  };
+
+  const handleSaveConnectionSettings = (e) => {
+    e.preventDefault();
+    setGasUrl(modalGasUrl.trim());
+    setSpreadsheetId(modalSpreadsheetId.trim());
+    setBookkeepingSsId(modalBkSsId.trim());
+    localStorage.setItem('ieee_gas_url', modalGasUrl.trim());
+    localStorage.setItem('ieee_ss_id', modalSpreadsheetId.trim());
+    localStorage.setItem('ieee_bookkeeping_ss_id', modalBkSsId.trim());
+    setSuccessMsg("Connection API settings updated successfully!");
   };
 
   const handleSaveSecuritySettings = async (e) => {
@@ -668,22 +705,22 @@ function App() {
   // Fetch lists on module/connection state change
   useEffect(() => {
     if (activeModule === 'expenses') {
-      fetchEvents();
+      fetchEvents(selectedExpensesYear);
     } else {
       fetchBookKeepingYears();
     }
-  }, [isApiMode, activeModule]);
+  }, [isApiMode, activeModule, selectedExpensesYear]);
 
-  // Fetch detailed tab data on active tab selection
+  // Fetch detailed tab data on active tab selection or year change
   useEffect(() => {
     if (activeModule === 'expenses') {
       if (currentEvent) {
-        fetchEventData(currentEvent);
+        fetchEventData(currentEvent, selectedExpensesYear);
       } else {
         setEventData({ expenses: [] });
       }
     }
-  }, [currentEvent, activeModule]);
+  }, [currentEvent, activeModule, selectedExpensesYear]);
 
   useEffect(() => {
     if (activeModule === 'bookkeeping') {
@@ -733,16 +770,184 @@ function App() {
     return dateStr;
   };
 
+  // Extract Spreadsheet ID from full URL or return ID directly
+  const extractSpreadsheetId = (input) => {
+    if (!input) return '';
+    const trimmed = input.trim();
+    const match = trimmed.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match && match[1]) return match[1];
+    return trimmed;
+  };
+
+  // Get current spreadsheet ID for a module and target year
+  const getActiveSpreadsheetId = (moduleType, targetYear) => {
+    const yearStr = (targetYear || selectedExpensesYear).toString();
+    const match = yearlySpreadsheets.find(item => item.year.toString() === yearStr && item.module_type === moduleType);
+    if (match && match.spreadsheet_id) {
+      return match.spreadsheet_id;
+    }
+    if (moduleType === 'bookkeeping') {
+      return bookkeepingSsId;
+    }
+    return null; // Return null if no sheet is assigned for the year (no default sheet fallback!)
+  };
+
+  const fetchYearlySpreadsheets = async () => {
+    try {
+      const response = await fetch('/api/auth?action=getYearlySpreadsheets');
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.spreadsheets) {
+          setYearlySpreadsheets(result.spreadsheets);
+          localStorage.setItem('ieee_yearly_spreadsheets', JSON.stringify(result.spreadsheets));
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch yearly spreadsheets online, using local cache:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchYearlySpreadsheets();
+  }, []);
+
+  const handleSaveYearlyLink = async (e) => {
+    if (e) e.preventDefault();
+    if (!linkInputUrl.trim()) {
+      setErrorMsg("Please enter a Google Sheet URL or Spreadsheet ID.");
+      return;
+    }
+    const extractedId = extractSpreadsheetId(linkInputUrl);
+    if (!extractedId) {
+      setErrorMsg("Invalid Google Sheet link format.");
+      return;
+    }
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'saveYearlySpreadsheet',
+          year: linkInputYear,
+          module_type: linkInputModule,
+          spreadsheet_id: extractedId,
+          spreadsheet_url: linkInputUrl.trim()
+        })
+      });
+      const result = await response.json();
+      if (result.success) {
+        setSuccessMsg(`Spreadsheet link for ${linkInputYear} (${linkInputModule}) saved successfully!`);
+        fetchYearlySpreadsheets();
+        setLinkInputUrl('');
+        if (linkInputModule === 'expenses' && linkInputYear === selectedExpensesYear) {
+          fetchEvents(selectedExpensesYear);
+        }
+      } else {
+        throw new Error(result.error || "Failed to save link.");
+      }
+    } catch (err) {
+      console.warn("Could not save link online, saving locally:", err);
+      const updated = yearlySpreadsheets.filter(item => !(item.year.toString() === linkInputYear.toString() && item.module_type === linkInputModule));
+      updated.push({
+        year: linkInputYear,
+        module_type: linkInputModule,
+        spreadsheet_id: extractedId,
+        spreadsheet_url: linkInputUrl.trim(),
+        created_at: new Date().toISOString()
+      });
+      setYearlySpreadsheets(updated);
+      localStorage.setItem('ieee_yearly_spreadsheets', JSON.stringify(updated));
+      setSuccessMsg(`Saved link locally for ${linkInputYear}!`);
+    }
+    setLoading(false);
+  };
+
+  const handleDeleteYearlyLink = async (year, moduleType) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'deleteYearlySpreadsheet',
+          year: year,
+          module_type: moduleType
+        })
+      });
+      const result = await response.json();
+      if (result.success) {
+        setSuccessMsg(`Removed spreadsheet link for ${year}.`);
+        fetchYearlySpreadsheets();
+      }
+    } catch (err) {
+      const updated = yearlySpreadsheets.filter(item => !(item.year.toString() === year.toString() && item.module_type === moduleType));
+      setYearlySpreadsheets(updated);
+      localStorage.setItem('ieee_yearly_spreadsheets', JSON.stringify(updated));
+      setSuccessMsg(`Removed local link for ${year}.`);
+    }
+    setLoading(false);
+  };
+
+  const handleAddExpensesSeason = () => {
+    const yr = window.prompt("Enter new season year (e.g. 2029):");
+    if (!yr) return;
+    const trimmed = yr.trim();
+    if (!/^\d{4}$/.test(trimmed)) {
+      setErrorMsg("Please enter a valid 4-digit year (e.g. 2029).");
+      return;
+    }
+    if (expensesSeasons.includes(trimmed)) {
+      setErrorMsg(`Season year ${trimmed} already exists.`);
+      return;
+    }
+    const updated = [trimmed, ...expensesSeasons].sort((a, b) => b - a);
+    setExpensesSeasons(updated);
+    localStorage.setItem('ieee_expenses_seasons', JSON.stringify(updated));
+    setSelectedExpensesYear(trimmed);
+    fetchEvents(trimmed);
+    setSuccessMsg(`Added new season year ${trimmed}!`);
+  };
+
+  const handleDeleteExpensesSeason = async (targetYear) => {
+    if (expensesSeasons.length <= 1) {
+      setErrorMsg("You must keep at least one season year.");
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to remove season year "${targetYear}"? This will also remove any custom Google Sheet link assigned to this year.`)) return;
+
+    handleDeleteYearlyLink(targetYear, 'expenses');
+
+    const updated = expensesSeasons.filter(y => y !== targetYear);
+    setExpensesSeasons(updated);
+    localStorage.setItem('ieee_expenses_seasons', JSON.stringify(updated));
+
+    if (selectedExpensesYear === targetYear) {
+      const nextYr = updated[0];
+      setSelectedExpensesYear(nextYr);
+      fetchEvents(nextYr);
+    }
+    setSuccessMsg(`Removed season year ${targetYear}.`);
+  };
+
   // ==========================================
   // EXPENSES BACKEND OPERATIONS
   // ==========================================
 
-  const fetchEvents = async () => {
+  const fetchEvents = async (targetYear = selectedExpensesYear) => {
     setLoading(true);
     setErrorMsg('');
+    const activeSsId = getActiveSpreadsheetId('expenses', targetYear);
+    if (!activeSsId) {
+      setEvents([]);
+      setCurrentEvent('');
+      setLoading(false);
+      return;
+    }
     if (isApiMode && gasUrl) {
       try {
-        const url = `${gasUrl}?action=getEvents${spreadsheetId ? `&spreadsheetId=${spreadsheetId}` : ''}`;
+        const url = `${gasUrl}?action=getEvents&spreadsheetId=${activeSsId}`;
         const response = await fetch(url);
         const result = await response.json();
         if (result.success) {
@@ -781,12 +986,18 @@ function App() {
     }
   };
 
-  const fetchEventData = async (eventName) => {
+  const fetchEventData = async (eventName, targetYear = selectedExpensesYear) => {
     setLoading(true);
     setErrorMsg('');
+    const activeSsId = getActiveSpreadsheetId('expenses', targetYear);
+    if (!activeSsId) {
+      setEventData({ expenses: [] });
+      setLoading(false);
+      return;
+    }
     if (isApiMode && gasUrl) {
       try {
-        const url = `${gasUrl}?action=getEventData&event=${encodeURIComponent(eventName)}${spreadsheetId ? `&spreadsheetId=${spreadsheetId}` : ''}`;
+        const url = `${gasUrl}?action=getEventData&event=${encodeURIComponent(eventName)}&spreadsheetId=${activeSsId}`;
         const response = await fetch(url);
         const result = await response.json();
         if (result.success) {
@@ -817,6 +1028,7 @@ function App() {
 
   const saveEventDataChanges = async (updatedExpenses, showFeedback = true) => {
     setLoading(true);
+    const activeSsId = getActiveSpreadsheetId('expenses', selectedExpensesYear);
     if (isApiMode && gasUrl) {
       try {
         const response = await fetch(gasUrl, {
@@ -826,7 +1038,7 @@ function App() {
           },
           body: JSON.stringify({
             action: 'saveEventData',
-            spreadsheetId: spreadsheetId,
+            spreadsheetId: activeSsId,
             eventName: currentEvent,
             expenses: updatedExpenses
           })
@@ -834,7 +1046,7 @@ function App() {
         const result = await response.json();
         if (result.success) {
           if (showFeedback) setSuccessMsg("Google Sheet updated successfully!");
-          fetchEventData(currentEvent);
+          fetchEventData(currentEvent, selectedExpensesYear);
         } else {
           throw new Error(result.error);
         }
@@ -875,7 +1087,7 @@ function App() {
           },
           body: JSON.stringify({
             action: 'createEvent',
-            spreadsheetId: spreadsheetId,
+            spreadsheetId: getActiveSpreadsheetId('expenses', selectedExpensesYear),
             eventName: formattedName
           })
         });
@@ -908,12 +1120,11 @@ function App() {
     }
     const updated = [...mockEvs, formattedName];
     localStorage.setItem('ieee_mock_events', JSON.stringify(updated));
-    saveMockEventData(formattedName, []);
     setEvents(updated);
     setCurrentEvent(formattedName);
     setShowAddEvent(false);
     setNewEventName('');
-    setSuccessMsg(`Created local event "${formattedName}".`);
+    setSuccessMsg(`Created local event tab "${formattedName}".`);
   };
 
   const handleDeleteEvent = async (eventName, e) => {
@@ -934,7 +1145,7 @@ function App() {
           },
           body: JSON.stringify({
             action: 'deleteEvent',
-            spreadsheetId: spreadsheetId,
+            spreadsheetId: getActiveSpreadsheetId('expenses', selectedExpensesYear),
             eventName: eventName
           })
         });
@@ -1076,11 +1287,11 @@ function App() {
           },
           body: JSON.stringify({
             action: 'saveBookKeepingData',
-            spreadsheetId: bookkeepingSsId,
+            spreadsheetId: activeBkSsId,
             yearName: currentBkYear,
-            withdraws: updatedWithdraws,
-            incomes: updatedIncomes,
-            initialBalances: updatedInitials
+            withdraws: newWithdraws,
+            incomes: newIncomes,
+            initialBalances: newInitialBalances
           })
         });
         const result = await response.json();
@@ -1125,7 +1336,7 @@ function App() {
           },
           body: JSON.stringify({
             action: 'createBookKeepingYear',
-            spreadsheetId: bookkeepingSsId,
+            spreadsheetId: getActiveSpreadsheetId('bookkeeping', currentBkYear),
             yearName: formattedName
           })
         });
@@ -1188,7 +1399,7 @@ function App() {
           },
           body: JSON.stringify({
             action: 'deleteBookKeepingYear',
-            spreadsheetId: bookkeepingSsId,
+            spreadsheetId: getActiveSpreadsheetId('bookkeeping', yearName),
             yearName: yearName
           })
         });
@@ -1616,7 +1827,7 @@ function App() {
 
           <div className="login-card">
             <div className="login-logo">
-              <Lock size={28} />
+              <IeeeLogo size={36} />
             </div>
 
             {/* Header Tabs for Login & Sign Up */}
@@ -1662,7 +1873,7 @@ function App() {
             )}
 
             <h2 className="login-title">
-              {loginView === 'login' && "IEEE Dibrugarh University Student Branch"}
+              {loginView === 'login' && "IEEE Dibrugarh University Financial Portol"}
               {loginView === 'signup' && "Register Account"}
               {loginView === 'forgot' && "Find Your Account"}
               {loginView === 'forgot_verify' && "Security Question"}
@@ -2016,9 +2227,11 @@ function App() {
         <>
           {/* Main Header */}
           <header className="main-header" style={{ height: '70px' }}>
-            <div className="logo-section">
-              <h1>IEEE Financial Manager</h1>
-              <span className="logo-badge">PORTAL</span>
+            <div className="logo-section" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <h1 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: '#ffffff', letterSpacing: '-0.3px', lineHeight: 1.2 }}>IEEE Financial Manager</h1>
+                <span className="logo-badge" style={{ alignSelf: 'flex-start', margin: 0, padding: '1px 6px', fontSize: '0.62rem', fontWeight: 800, borderRadius: '4px', letterSpacing: '0.5px' }}>PORTAL</span>
+              </div>
             </div>
 
             {/* Module Switcher (Pill Style) */}
@@ -2087,6 +2300,68 @@ function App() {
               <div className="sidebar-title">
                 {activeModule === 'expenses' ? "Events Sheets" : "Academic Sessions"}
               </div>
+
+              {activeModule === 'expenses' && (
+                <div style={{ marginBottom: '14px', padding: '12px', backgroundColor: 'var(--surface-hover)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Calendar size={13} /> Active Season
+                    </span>
+                    {yearlySpreadsheets.some(i => i.year.toString() === selectedExpensesYear && i.module_type === 'expenses') ? (
+                      <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)', backgroundColor: 'var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
+                        Linked
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)', backgroundColor: 'rgba(255, 255, 255, 0.05)', padding: '2px 6px', borderRadius: '4px' }}>
+                        Unlinked
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <select
+                      value={selectedExpensesYear}
+                      onChange={(e) => {
+                        const newYr = e.target.value;
+                        setSelectedExpensesYear(newYr);
+                        fetchEvents(newYr);
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--surface)',
+                        color: 'var(--text)',
+                        fontWeight: 700,
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      {expensesSeasons.map(yr => (
+                        <option key={yr} value={yr}>{yr} Season</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={handleAddExpensesSeason}
+                      style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--primary)' }}
+                      title="Add New Season Year"
+                    >
+                      <Plus size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => handleDeleteExpensesSeason(selectedExpensesYear)}
+                      style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: '#ef4444' }}
+                      title="Remove Current Season Year"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <input
                 type="text"
@@ -2166,8 +2441,33 @@ function App() {
                 </div>
               )}
 
+              {/* SPREADSHEET LINK MISSING SCREEN */}
+              {activeModule === 'expenses' && !getActiveSpreadsheetId('expenses', selectedExpensesYear) && !loading && (
+                <div style={{ textAlign: 'center', padding: '60px 24px', backgroundColor: 'var(--surface-hover)', borderRadius: '16px', border: '1px dashed var(--border)', maxWidth: '600px', margin: '40px auto' }}>
+                  <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: 'rgba(14, 165, 233, 0.1)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto' }}>
+                    <Link size={28} />
+                  </div>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 10px 0' }}>Spreadsheet Link Required</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5', margin: '0 0 24px 0' }}>
+                    There is no Google Spreadsheet linked to the <strong>{selectedExpensesYear} Season</strong>. Please paste the Spreadsheet URL in Settings to start managing expenses.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setSettingsTab('links');
+                      setLinkInputYear(selectedExpensesYear);
+                      setShowSettings(true);
+                    }}
+                    className="btn btn-primary"
+                    style={{ padding: '10px 24px', fontSize: '0.9rem', display: 'inline-flex', alignItems: 'center', gap: '8px', margin: '0 auto' }}
+                  >
+                    <Plus size={16} />
+                    Configure Spreadsheet Link
+                  </button>
+                </div>
+              )}
+
               {/* NO ACTIVE EVENT/YEAR SELECTOR */}
-              {activeModule === 'expenses' && !currentEvent && !loading && (
+              {activeModule === 'expenses' && getActiveSpreadsheetId('expenses', selectedExpensesYear) && !currentEvent && !loading && (
                 <div style={{ textAlign: 'center', padding: '80px 24px', backgroundColor: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
                   <FileText size={48} style={{ color: 'var(--primary)', opacity: 0.5, marginBottom: '16px' }} />
                   <h3>No Event Selected</h3>
@@ -2186,7 +2486,7 @@ function App() {
               {/* ========================================================= */}
               {/* EXPENSES INTERFACE */}
               {/* ========================================================= */}
-              {activeModule === 'expenses' && currentEvent && !loading && (
+              {activeModule === 'expenses' && getActiveSpreadsheetId('expenses', selectedExpensesYear) && currentEvent && !loading && (
                 <>
                   {/* Event Title Block */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
@@ -2203,9 +2503,12 @@ function App() {
                   <section className="stats-grid" style={{ marginBottom: '24px' }}>
                     <div className="stat-card primary">
                       <span className="stat-label">Total Expenses</span>
-                      <span className="stat-value" style={{ color: 'var(--primary)' }}>
-                        Rs {expensesTotal.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Briefcase size={20} style={{ color: 'var(--primary)' }} />
+                        <span className="stat-value" style={{ color: 'var(--primary)' }}>
+                          Rs {expensesTotal.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="stat-card secondary">
@@ -2338,9 +2641,16 @@ function App() {
 
                     <div className="stat-card" style={{ borderLeft: '4px solid var(--primary)', backgroundColor: 'var(--accent)' }}>
                       <span className="stat-label">Net Session Income</span>
-                      <span className="stat-value" style={{ color: bkNetBalance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        Rs {bkNetBalance.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {bkNetBalance >= 0 ? (
+                          <ArrowUpCircle size={20} style={{ color: 'var(--success)' }} />
+                        ) : (
+                          <ArrowDownCircle size={20} style={{ color: 'var(--danger)' }} />
+                        )}
+                        <span className="stat-value" style={{ color: bkNetBalance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                          Rs {bkNetBalance.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
                     </div>
                   </section>
 
@@ -2659,81 +2969,244 @@ function App() {
           {/* MODALS */}
           {/* ========================================================= */}
 
-          {/* API Settings Modal */}
+          {/* Executive Settings Modal */}
           {showSettings && (
-            <div className="modal-overlay">
-              <div className="modal-content" style={{ maxWidth: '500px' }}>
-                <div className="modal-header">
-                  <h3 className="modal-title">My Account Settings</h3>
-                  <button className="btn btn-ghost" onClick={() => setShowSettings(false)}>
-                    <X size={18} />
+            <div className="modal-overlay" style={{ zIndex: 1100 }}>
+              <div className="modal-content" style={{ maxWidth: '680px', padding: 0, overflow: 'hidden', borderRadius: '16px', border: '1px solid var(--border)' }}>
+                {/* Modal Header */}
+                <div style={{ padding: '20px 24px', backgroundColor: 'var(--surface-hover)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: 'rgba(14, 165, 233, 0.15)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <SettingsIcon size={20} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: 'var(--text)' }}>Portal System Settings</h3>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Configure security, database links, and Google API connections</span>
+                    </div>
+                  </div>
+                  <button className="btn btn-ghost" onClick={() => setShowSettings(false)} style={{ padding: '6px' }}>
+                    <X size={20} />
                   </button>
                 </div>
-                
-                <form onSubmit={handleSaveSecuritySettings} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '8px' }}>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    Update passcode and recovery choices for your account email: <strong>{currentUserEmail}</strong>
-                  </p>
 
-                  <div className="form-group">
-                    <label className="form-label">Account Email</label>
-                    <input
-                      type="email"
-                      className="form-input"
-                      value={modalEmail}
-                      disabled
-                    />
-                  </div>
+                {/* Settings Navigation Tabs */}
+                <div style={{ display: 'flex', backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '0 16px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsTab('security')}
+                    style={{
+                      padding: '14px 20px',
+                      border: 'none',
+                      background: 'none',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      color: settingsTab === 'security' ? 'var(--primary)' : 'var(--text-muted)',
+                      borderBottom: settingsTab === 'security' ? '2px solid var(--primary)' : '2px solid transparent',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <Lock size={15} />
+                    Account Security
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsTab('links')}
+                    style={{
+                      padding: '14px 20px',
+                      border: 'none',
+                      background: 'none',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      color: settingsTab === 'links' ? 'var(--primary)' : 'var(--text-muted)',
+                      borderBottom: settingsTab === 'links' ? '2px solid var(--primary)' : '2px solid transparent',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <Link size={15} />
+                    Yearly Sheet Links
+                  </button>
+                </div>
 
-                  <div className="form-group">
-                    <label className="form-label">New Passcode</label>
-                    <input
-                      type="password"
-                      className="form-input"
-                      placeholder="Enter new passcode"
-                      value={modalPasscode}
-                      onChange={(e) => setModalPasscode(e.target.value)}
-                      required
-                    />
-                  </div>
+                {/* Tab Body Container */}
+                <div style={{ padding: '24px', maxHeight: '520px', overflowY: 'auto' }}>
 
-                  <div className="form-group">
-                    <label className="form-label">Security Question</label>
-                    <select
-                      className="form-input"
-                      value={modalQuestion}
-                      onChange={(e) => setModalQuestion(e.target.value)}
-                      required
-                    >
-                      <option value="What is the default recovery code?">What is the default recovery code?</option>
-                      <option value="What was your first school?">What was your first school?</option>
-                      <option value="What is your pet's name?">What is your pet's name?</option>
-                      <option value="What is your mother's maiden name?">What is your mother's maiden name?</option>
-                      <option value="What was the name of your first IEEE event?">What was the name of your first IEEE event?</option>
-                    </select>
-                  </div>
+                  {/* TAB 1: Account Security */}
+                  {settingsTab === 'security' && (
+                    <form onSubmit={handleSaveSecuritySettings} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div className="form-group">
+                        <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Registered Account Email</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: 'var(--surface-hover)', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                          <User size={16} />
+                          <span>{modalEmail}</span>
+                        </div>
+                      </div>
 
-                  <div className="form-group">
-                    <label className="form-label">Security Answer</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="Enter answer"
-                      value={modalAnswer}
-                      onChange={(e) => setModalAnswer(e.target.value)}
-                      required
-                    />
-                  </div>
+                      <div className="form-group">
+                        <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Passcode (SHA-256 Encrypted)</label>
+                        <div style={{ position: 'relative' }}>
+                          <input
+                            type={showPassword ? "text" : "password"}
+                            className="form-input"
+                            style={{ paddingRight: '40px' }}
+                            placeholder="Enter new passcode"
+                            value={modalPasscode}
+                            onChange={(e) => setModalPasscode(e.target.value)}
+                            required
+                            minLength={4}
+                          />
+                          <button
+                            type="button"
+                            className="password-toggle-btn"
+                            style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                      </div>
 
-                  <div className="form-actions">
-                    <button type="button" className="btn btn-secondary" onClick={() => setShowSettings(false)}>
-                      Cancel
-                    </button>
-                    <button type="submit" className="btn btn-primary" disabled={loading}>
-                      {loading ? "Saving..." : "Save Account Details"}
-                    </button>
-                  </div>
-                </form>
+                      <div className="form-group">
+                        <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Security Question</label>
+                        <select
+                          className="form-input"
+                          value={modalQuestion}
+                          onChange={(e) => setModalQuestion(e.target.value)}
+                          required
+                        >
+                          <option value="What is the default recovery code?">What is the default recovery code?</option>
+                          <option value="What was your first school?">What was your first school?</option>
+                          <option value="What is your pet's name?">What is your pet's name?</option>
+                          <option value="What is your mother's maiden name?">What is your mother's maiden name?</option>
+                          <option value="What was the name of your first IEEE event?">What was the name of your first IEEE event?</option>
+                        </select>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Security Answer</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Enter answer"
+                          value={modalAnswer}
+                          onChange={(e) => setModalAnswer(e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                        <button type="button" className="btn btn-secondary" onClick={() => setShowSettings(false)}>
+                          Cancel
+                        </button>
+                        <button type="submit" className="btn btn-primary" disabled={loading}>
+                          <Save size={15} />
+                          {loading ? "Saving..." : "Save Account Security"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {/* TAB 2: Yearly Sheet Links Manager */}
+                  {settingsTab === 'links' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                      <div style={{ backgroundColor: 'var(--surface-hover)', padding: '16px', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                        <h4 style={{ margin: '0 0 6px 0', fontSize: '0.9rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <PlusCircle size={15} style={{ color: 'var(--primary)' }} />
+                          Assign Spreadsheet Link for Specific Year
+                        </h4>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 14px 0', lineHeight: 1.4 }}>
+                          Paste a Google Sheet URL (e.g. <code>https://docs.google.com/spreadsheets/d/.../edit</code>) or Spreadsheet ID. It will be saved in Neon PostgreSQL and assigned to that year.
+                        </p>
+
+                        <form onSubmit={handleSaveYearlyLink} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Target Year</label>
+                            <select
+                              className="form-input"
+                              style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                              value={linkInputYear}
+                              onChange={(e) => setLinkInputYear(e.target.value)}
+                            >
+                              {expensesSeasons.map(yr => (
+                                <option key={yr} value={yr}>{yr} Season</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Google Sheet Link or ID</label>
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="Paste full Google Sheet URL or ID here..."
+                              style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                              value={linkInputUrl}
+                              onChange={(e) => setLinkInputUrl(e.target.value)}
+                              required
+                            />
+                          </div>
+
+                          <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-start', padding: '8px 18px', fontSize: '0.85rem', marginTop: '4px' }} disabled={loading}>
+                            <Save size={15} />
+                            Save Year Link
+                          </button>
+                        </form>
+                      </div>
+
+                      {/* Configured Links List */}
+                      <div>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text)', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span>Configured Yearly Links ({yearlySpreadsheets.length})</span>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>Overriding default system sheet</span>
+                        </h4>
+
+                        {yearlySpreadsheets.length === 0 ? (
+                          <div style={{ padding: '16px', textAlign: 'center', backgroundColor: 'var(--surface)', borderRadius: '8px', border: '1px dashed var(--border)', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                            No custom year links added yet. All years currently use the default system spreadsheet.
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {yearlySpreadsheets.map((item, idx) => (
+                              <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontWeight: 700, color: 'var(--primary)', backgroundColor: 'rgba(14, 165, 233, 0.15)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>
+                                      {item.year}
+                                    </span>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'capitalize', color: 'var(--text)' }}>
+                                      {item.module_type === 'expenses' ? 'Event Expenses' : 'Book Keeping'}
+                                    </span>
+                                  </div>
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace', marginTop: '2px' }}>
+                                    ID: {item.spreadsheet_id}
+                                  </span>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: '#ef4444', padding: '6px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                  onClick={() => handleDeleteYearlyLink(item.year, item.module_type)}
+                                  title="Delete custom link for this year"
+                                >
+                                  <Trash2 size={13} />
+                                  Delete Link
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

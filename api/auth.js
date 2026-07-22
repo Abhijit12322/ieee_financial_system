@@ -34,6 +34,19 @@ async function initDbSchema(sql) {
       )
     `);
 
+    // Create yearly_spreadsheets table
+    await sql(`
+      CREATE TABLE IF NOT EXISTS yearly_spreadsheets (
+        id SERIAL PRIMARY KEY,
+        year VARCHAR(20) NOT NULL,
+        module_type VARCHAR(50) NOT NULL,
+        spreadsheet_id VARCHAR(255) NOT NULL,
+        spreadsheet_url TEXT,
+        created_at VARCHAR(50) NOT NULL,
+        CONSTRAINT unique_year_module UNIQUE(year, module_type)
+      )
+    `);
+
     // Migration: Add is_verified column to existing 'users' table if it doesn't exist
     try {
       await sql(`ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT FALSE`);
@@ -334,6 +347,44 @@ export default async (req, res) => {
       await sql(`INSERT INTO login_logs (email, action, timestamp) VALUES ($1, $2, $3)`, [email, "Logout", formattedDate]);
 
       return res.status(200).json({ success: true, message: "Logout logged successfully." });
+
+    } else if (action === 'getYearlySpreadsheets') {
+      const spreadsheets = await sql(`SELECT * FROM yearly_spreadsheets ORDER BY year DESC`);
+      return res.status(200).json({ success: true, spreadsheets: spreadsheets });
+
+    } else if (action === 'saveYearlySpreadsheet') {
+      const year = params.year ? params.year.toString().trim() : '';
+      const module_type = params.module_type ? params.module_type.toString().trim() : 'expenses';
+      const spreadsheet_id = params.spreadsheet_id ? params.spreadsheet_id.toString().trim() : '';
+      const spreadsheet_url = params.spreadsheet_url ? params.spreadsheet_url.toString().trim() : '';
+
+      if (!year || !spreadsheet_id) {
+        return res.status(400).json({ success: false, error: "Missing year or spreadsheet_id parameters" });
+      }
+
+      const formattedDate = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
+
+      await sql(`
+        INSERT INTO yearly_spreadsheets (year, module_type, spreadsheet_id, spreadsheet_url, created_at)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (year, module_type) DO UPDATE
+        SET spreadsheet_id = EXCLUDED.spreadsheet_id,
+            spreadsheet_url = EXCLUDED.spreadsheet_url,
+            created_at = EXCLUDED.created_at
+      `, [year, module_type, spreadsheet_id, spreadsheet_url, formattedDate]);
+
+      return res.status(200).json({ success: true, message: `Spreadsheet link saved for ${year} (${module_type}).` });
+
+    } else if (action === 'deleteYearlySpreadsheet') {
+      const year = params.year ? params.year.toString().trim() : '';
+      const module_type = params.module_type ? params.module_type.toString().trim() : 'expenses';
+
+      if (!year) {
+        return res.status(400).json({ success: false, error: "Missing year parameter" });
+      }
+
+      await sql(`DELETE FROM yearly_spreadsheets WHERE year = $1 AND module_type = $2`, [year, module_type]);
+      return res.status(200).json({ success: true, message: `Spreadsheet link removed for ${year}.` });
 
     } else {
       return res.status(400).json({ success: false, error: "Unknown action: " + action });
