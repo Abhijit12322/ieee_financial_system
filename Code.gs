@@ -1072,3 +1072,11 @@ function createBookKeepingSheet(ss, yearName) {
   sheet.setHiddenGridlines(false);
 }
 
+// Run this function once manually in the Apps Script editor to authorize Google Drive & Spreadsheets permissions
+function authorizePortal() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log("Authorized Spreadsheet: " + (ss ? ss.getName() : "None"));
+  var folder = DriveApp.getRootFolder();
+  Logger.log("Authorized Google Drive: Root folder retrieved.");
+}
+
