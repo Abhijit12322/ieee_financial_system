@@ -117,7 +117,7 @@ function App() {
   });
   const [expensesSeasons, setExpensesSeasons] = useState(() => {
     const saved = localStorage.getItem('ieee_expenses_seasons');
-    return saved ? JSON.parse(saved) : ['2026', '2025', '2024', '2027', '2028'];
+    return saved ? JSON.parse(saved) : ['2026'];
   });
   const [selectedExpensesYear, setSelectedExpensesYear] = useState('2026');
   const [linkInputYear, setLinkInputYear] = useState('2026');
