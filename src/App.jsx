@@ -1108,64 +1108,100 @@ function App() {
   };
 
   const handleUploadBillFile = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      setErrorMsg("File size exceeds 10MB limit.");
+    for (const file of files) {
+      if (file.size > 10 * 1024 * 1024) {
+        setErrorMsg(`File "${file.name}" exceeds 10MB limit.`);
+        return;
+      }
+    }
+
+    const categoryInput = prompt("Enter bill category for these uploads (e.g., Food, Decor, Printing, Travel):", "General");
+    if (categoryInput === null) return;
+    const category = categoryInput.trim() || 'General';
+
+    setLoading(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const activeSsId = getActiveSpreadsheetId('expenses', selectedExpensesYear);
+    if (!activeSsId) {
+      setErrorMsg("No spreadsheet link configured for the selected season.");
+      setLoading(false);
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      setLoading(true);
-      setErrorMsg('');
+    let successCount = 0;
+    let failedFiles = [];
+
+    const readFileAsBase64 = (file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = () => reject(new Error("Failed to read file contents."));
+        reader.readAsDataURL(file);
+      });
+    };
+
+    for (const file of files) {
       try {
-        const base64Data = reader.result.split(',')[1];
-        const activeSsId = getActiveSpreadsheetId('expenses', selectedExpensesYear);
-        if (!activeSsId) {
-          throw new Error("No spreadsheet link configured for the selected season.");
-        }
+        const base64Data = await readFileAsBase64(file);
+        
+        if (isApiMode && gasUrl) {
+          const response = await fetch(gasUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'text/plain'
+            },
+            body: JSON.stringify({
+              action: 'uploadBillImage',
+              spreadsheetId: activeSsId,
+              eventName: currentEvent,
+              fileName: file.name,
+              fileData: base64Data,
+              mimeType: file.type,
+              category: category
+            })
+          });
 
-        const categoryInput = prompt("Enter bill category (e.g., Food, Decor, Printing, Travel):", "General");
-        if (categoryInput === null) {
-          setLoading(false);
-          return;
-        }
-
-        const response = await fetch(gasUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'text/plain'
-          },
-          body: JSON.stringify({
-            action: 'uploadBillImage',
-            spreadsheetId: activeSsId,
-            eventName: currentEvent,
-            fileName: file.name,
-            fileData: base64Data,
-            mimeType: file.type,
-            category: categoryInput.trim() || 'General'
-          })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-          setSuccessMsg("Bill uploaded successfully to Google Drive & synced to sheet!");
-          fetchEventData(currentEvent, selectedExpensesYear);
+          const result = await response.json();
+          if (result.success) {
+            successCount++;
+          } else {
+            throw new Error(result.error);
+          }
         } else {
-          throw new Error(result.error);
+          const mockData = JSON.parse(localStorage.getItem('ieee_mock_data')) || {};
+          if (!mockData[currentEvent]) {
+            mockData[currentEvent] = { expenses: [], images: [] };
+          }
+          if (!mockData[currentEvent].images) {
+            mockData[currentEvent].images = [];
+          }
+          mockData[currentEvent].images.push({
+            category: category,
+            imageUrl: `https://example.com/mock-bill-${file.name}`
+          });
+          localStorage.setItem('ieee_mock_data', JSON.stringify(mockData));
+          successCount++;
         }
       } catch (err) {
-        console.error(err);
-        setErrorMsg("Upload failed: " + err.message);
+        console.error(`Failed to upload ${file.name}:`, err);
+        failedFiles.push(file.name);
       }
-      setLoading(false);
-    };
-    reader.onerror = () => {
-      setErrorMsg("Failed to read file contents.");
-    };
-    reader.readAsDataURL(file);
+    }
+
+    if (successCount > 0) {
+      setSuccessMsg(`Successfully uploaded ${successCount} bill(s) to Drive & synced to sheet!`);
+      fetchEventData(currentEvent, selectedExpensesYear);
+    }
+    if (failedFiles.length > 0) {
+      setErrorMsg(`Failed to upload: ${failedFiles.join(', ')}`);
+    }
+
+    setLoading(false);
   };
 
   const handleLinkBillManually = async () => {
@@ -2809,6 +2845,7 @@ function App() {
                             accept="image/*,application/pdf"
                             onChange={handleUploadBillFile}
                             style={{ display: 'none' }}
+                            multiple
                           />
                         </label>
                       </div>
