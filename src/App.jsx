@@ -1065,7 +1065,7 @@ function App() {
     const itemData = data[eventName] || {};
     return {
       expenses: itemData.expenses || [],
-      images: []
+      images: itemData.images || []
     };
   };
 
@@ -1168,62 +1168,98 @@ function App() {
     reader.readAsDataURL(file);
   };
 
-  const handleAttachBillLink = async () => {
-    const activeSsId = getActiveSpreadsheetId('expenses', selectedExpensesYear);
-    if (!activeSsId) {
-      setErrorMsg("No spreadsheet link configured for the selected season.");
+  const handleLinkBillManually = async () => {
+    const urlInput = window.prompt("Enter Google Drive sharing link or direct image URL for the bill:");
+    if (!urlInput || !urlInput.trim()) return;
+
+    const trimmedUrl = urlInput.trim();
+
+    if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+      setErrorMsg("Please enter a valid URL (starting with http:// or https://).");
       return;
     }
 
-    const categoryInput = prompt("Enter bill category (e.g., Food, Decor, Printing, Travel):", "General");
+    const categoryInput = window.prompt("Enter bill category (e.g., Food, Decor, Printing, Travel):", "General");
     if (categoryInput === null) return;
+    const category = categoryInput.trim() || 'General';
 
-    const nameInput = prompt("Enter bill description/name (e.g., Catering Receipt):", "Bill Link");
-    if (nameInput === null) return;
-
-    const urlInput = prompt("Paste Google Drive sharing link or direct image URL:");
-    if (!urlInput || !urlInput.trim()) {
-      if (urlInput !== null) {
-        setErrorMsg("URL cannot be empty.");
-      }
-      return;
-    }
+    const filenameInput = window.prompt("Enter file description/name:", "Linked Invoice");
+    if (filenameInput === null) return;
+    const fileName = filenameInput.trim() || 'Linked Invoice';
 
     setLoading(true);
     setErrorMsg('');
-    try {
-      const response = await fetch(gasUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain'
-        },
-        body: JSON.stringify({
-          action: 'addBillLink',
-          spreadsheetId: activeSsId,
-          eventName: currentEvent,
-          fileName: nameInput.trim() || 'Bill Link',
-          fileUrl: urlInput.trim(),
-          category: categoryInput.trim() || 'General'
-        })
-      });
 
-      const result = await response.json();
-      if (result.success) {
-        setSuccessMsg("Bill link attached successfully!");
-        fetchEventData(currentEvent, selectedExpensesYear);
+    try {
+      const activeSsId = getActiveSpreadsheetId('expenses', selectedExpensesYear);
+      if (!activeSsId) {
+        throw new Error("No spreadsheet link configured for the selected season.");
+      }
+
+      let embedUrl = trimmedUrl;
+      let fileUrl = trimmedUrl;
+      
+      const driveIdReg1 = /\/file\/d\/([^\/]+)/;
+      const driveIdReg2 = /[?&]id=([^&]+)/;
+      const match1 = trimmedUrl.match(driveIdReg1);
+      const match2 = trimmedUrl.match(driveIdReg2);
+      
+      const driveFileId = (match1 && match1[1]) || (match2 && match2[1]);
+      if (driveFileId) {
+        embedUrl = `https://docs.google.com/uc?export=view&id=${driveFileId}`;
+      }
+
+      if (isApiMode && gasUrl) {
+        const response = await fetch(gasUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain'
+          },
+          body: JSON.stringify({
+            action: 'linkBillImage',
+            spreadsheetId: activeSsId,
+            eventName: currentEvent,
+            fileName: fileName,
+            embedUrl: embedUrl,
+            fileUrl: fileUrl,
+            category: category
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          setSuccessMsg("Bill link added successfully to sheet!");
+          fetchEventData(currentEvent, selectedExpensesYear);
+        } else {
+          throw new Error(result.error);
+        }
       } else {
-        throw new Error(result.error);
+        const mockData = JSON.parse(localStorage.getItem('ieee_mock_data')) || {};
+        if (!mockData[currentEvent]) {
+          mockData[currentEvent] = { expenses: [], images: [] };
+        }
+        if (!mockData[currentEvent].images) {
+          mockData[currentEvent].images = [];
+        }
+        mockData[currentEvent].images.push({
+          category: category,
+          imageUrl: embedUrl
+        });
+        localStorage.setItem('ieee_mock_data', JSON.stringify(mockData));
+        setSuccessMsg("Linked bill manually in mock database!");
+        fetchEventData(currentEvent, selectedExpensesYear);
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg("Failed to attach link: " + err.message);
+      setErrorMsg("Failed to link bill: " + err.message);
     }
     setLoading(false);
   };
 
   const saveMockEventData = (eventName, expenses) => {
     const data = JSON.parse(localStorage.getItem('ieee_mock_data')) || {};
-    data[eventName] = { expenses: expenses || [] };
+    const existingImages = data[eventName]?.images || [];
+    data[eventName] = { expenses: expenses || [], images: existingImages };
     localStorage.setItem('ieee_mock_data', JSON.stringify(data));
   };
 
@@ -2754,16 +2790,17 @@ function App() {
                         Event Bills & Invoices
                       </h3>
                       
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                         <button
                           type="button"
                           className="btn btn-secondary"
-                          onClick={handleAttachBillLink}
-                          style={{ padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', margin: 0 }}
+                          onClick={handleLinkBillManually}
+                          style={{ padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
                         >
                           <Link size={14} />
-                          Attach Bill Link
+                          Link Bill via URL
                         </button>
+                        
                         <label className="btn btn-primary" style={{ cursor: 'pointer', padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', margin: 0 }}>
                           <PlusCircle size={14} />
                           Upload Bill to Drive
@@ -2781,7 +2818,7 @@ function App() {
                     {!eventData.images || eventData.images.length === 0 ? (
                       <div style={{ padding: '32px', textAlign: 'center', backgroundColor: 'var(--bg-page)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
                         <p style={{ margin: 0, fontSize: '0.9rem' }}>No bills uploaded for this event yet.</p>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem' }}>Upload bills directly or attach direct image/receipt sharing links.</p>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem' }}>Upload PNG/JPG invoices directly to secure Google Drive storage.</p>
                       </div>
                     ) : (
                       <div className="images-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px', marginTop: '12px' }}>
