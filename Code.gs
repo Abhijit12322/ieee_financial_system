@@ -175,10 +175,22 @@ function doPost(e) {
       if (sheet) {
         var lastCol = sheet.getLastColumn();
         if (lastCol >= 6) {
-          var fileUrls = sheet.getRange(8, 6, 1, lastCol - 5).getValues()[0];
+          var row7Formulas = sheet.getRange(7, 6, 1, lastCol - 5).getFormulas()[0];
+          var row7Values = sheet.getRange(7, 6, 1, lastCol - 5).getValues()[0];
+          var row8Values = sheet.getRange(8, 6, 1, lastCol - 5).getValues()[0];
+          
           var targetCol = -1;
-          for (var c = 0; c < fileUrls.length; c++) {
-            if (fileUrls[c] && fileUrls[c].toString().trim() === fileUrl.toString().trim()) {
+          var cleanSearchUrl = fileUrl.toString().trim();
+          for (var c = 0; c < row8Values.length; c++) {
+            if (row8Values[c] && row8Values[c].toString().trim() === cleanSearchUrl) {
+              targetCol = 6 + c;
+              break;
+            }
+            if (row7Formulas[c] && row7Formulas[c].toString().indexOf(cleanSearchUrl) !== -1) {
+              targetCol = 6 + c;
+              break;
+            }
+            if (row7Values[c] && row7Values[c].toString().trim() === cleanSearchUrl) {
               targetCol = 6 + c;
               break;
             }
