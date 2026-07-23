@@ -1168,6 +1168,59 @@ function App() {
     reader.readAsDataURL(file);
   };
 
+  const handleAttachBillLink = async () => {
+    const activeSsId = getActiveSpreadsheetId('expenses', selectedExpensesYear);
+    if (!activeSsId) {
+      setErrorMsg("No spreadsheet link configured for the selected season.");
+      return;
+    }
+
+    const categoryInput = prompt("Enter bill category (e.g., Food, Decor, Printing, Travel):", "General");
+    if (categoryInput === null) return;
+
+    const nameInput = prompt("Enter bill description/name (e.g., Catering Receipt):", "Bill Link");
+    if (nameInput === null) return;
+
+    const urlInput = prompt("Paste Google Drive sharing link or direct image URL:");
+    if (!urlInput || !urlInput.trim()) {
+      if (urlInput !== null) {
+        setErrorMsg("URL cannot be empty.");
+      }
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const response = await fetch(gasUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain'
+        },
+        body: JSON.stringify({
+          action: 'addBillLink',
+          spreadsheetId: activeSsId,
+          eventName: currentEvent,
+          fileName: nameInput.trim() || 'Bill Link',
+          fileUrl: urlInput.trim(),
+          category: categoryInput.trim() || 'General'
+        })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        setSuccessMsg("Bill link attached successfully!");
+        fetchEventData(currentEvent, selectedExpensesYear);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("Failed to attach link: " + err.message);
+    }
+    setLoading(false);
+  };
+
   const saveMockEventData = (eventName, expenses) => {
     const data = JSON.parse(localStorage.getItem('ieee_mock_data')) || {};
     data[eventName] = { expenses: expenses || [] };
@@ -2702,6 +2755,15 @@ function App() {
                       </h3>
                       
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={handleAttachBillLink}
+                          style={{ padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', margin: 0 }}
+                        >
+                          <Link size={14} />
+                          Attach Bill Link
+                        </button>
                         <label className="btn btn-primary" style={{ cursor: 'pointer', padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', margin: 0 }}>
                           <PlusCircle size={14} />
                           Upload Bill to Drive
@@ -2719,7 +2781,7 @@ function App() {
                     {!eventData.images || eventData.images.length === 0 ? (
                       <div style={{ padding: '32px', textAlign: 'center', backgroundColor: 'var(--bg-page)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
                         <p style={{ margin: 0, fontSize: '0.9rem' }}>No bills uploaded for this event yet.</p>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem' }}>Upload PNG/JPG invoices directly to secure Google Drive storage.</p>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem' }}>Upload bills directly or attach direct image/receipt sharing links.</p>
                       </div>
                     ) : (
                       <div className="images-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px', marginTop: '12px' }}>
