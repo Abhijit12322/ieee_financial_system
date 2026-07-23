@@ -163,6 +163,54 @@ function doPost(e) {
       
       deleteEventSheet(ss, yearName);
       response = { success: true, message: "Year '" + yearName + "' deleted successfully.", events: getBookKeepingSheetsList(ss) };
+    } else if (action === 'deleteBill') {
+      var eventName = data.eventName;
+      var fileUrl = data.fileUrl;
+
+      if (!eventName || !fileUrl) {
+        throw new Error("Missing eventName or fileUrl");
+      }
+
+      var sheet = ss.getSheetByName(eventName);
+      if (sheet) {
+        var lastCol = sheet.getLastColumn();
+        if (lastCol >= 6) {
+          var fileUrls = sheet.getRange(8, 6, 1, lastCol - 5).getValues()[0];
+          var targetCol = -1;
+          for (var c = 0; c < fileUrls.length; c++) {
+            if (fileUrls[c] && fileUrls[c].toString().trim() === fileUrl.toString().trim()) {
+              targetCol = 6 + c;
+              break;
+            }
+          }
+
+          if (targetCol !== -1) {
+            sheet.deleteColumn(targetCol);
+
+            try {
+              var driveIdReg1 = /\/file\/d\/([^\/]+)/;
+              var driveIdReg2 = /[?&]id=([^&]+)/;
+              var match1 = fileUrl.match(driveIdReg1);
+              var match2 = fileUrl.match(driveIdReg2);
+              var driveFileId = (match1 && match1[1]) || (match2 && match2[1]);
+              if (driveFileId) {
+                var file = DriveApp.getFileById(driveFileId);
+                file.setTrashed(true);
+              }
+            } catch (err) {
+              Logger.log("Failed to trash Drive file: " + err.message);
+            }
+
+            response = { success: true, message: "Bill deleted successfully." };
+          } else {
+            throw new Error("Bill URL not found in spreadsheet.");
+          }
+        } else {
+          throw new Error("No bills found for this event.");
+        }
+      } else {
+        throw new Error("Sheet not found.");
+      }
     } else if (action === 'linkBillImage') {
       var eventName = data.eventName;
       var category = data.category || 'General';

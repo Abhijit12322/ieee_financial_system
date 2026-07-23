@@ -1293,6 +1293,58 @@ function App() {
     setLoading(false);
   };
 
+  const handleDeleteBill = async (fileUrl) => {
+    if (!window.confirm("Are you sure you want to delete this bill? This will remove the link from the sheet and delete the file from Google Drive (if uploaded there).")) {
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const activeSsId = getActiveSpreadsheetId('expenses', selectedExpensesYear);
+      if (!activeSsId) {
+        throw new Error("No spreadsheet link configured for the selected season.");
+      }
+
+      if (isApiMode && gasUrl) {
+        const response = await fetch(gasUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain'
+          },
+          body: JSON.stringify({
+            action: 'deleteBill',
+            spreadsheetId: activeSsId,
+            eventName: currentEvent,
+            fileUrl: fileUrl
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          setSuccessMsg("Bill deleted successfully!");
+          fetchEventData(currentEvent, selectedExpensesYear);
+        } else {
+          throw new Error(result.error);
+        }
+      } else {
+        const mockData = JSON.parse(localStorage.getItem('ieee_mock_data')) || {};
+        if (mockData[currentEvent] && mockData[currentEvent].images) {
+          mockData[currentEvent].images = mockData[currentEvent].images.filter(img => img.imageUrl !== fileUrl);
+          localStorage.setItem('ieee_mock_data', JSON.stringify(mockData));
+        }
+        setSuccessMsg("Deleted bill manually from mock database!");
+        fetchEventData(currentEvent, selectedExpensesYear);
+      }
+    } catch (err) {
+      console.error("Failed to delete bill:", err);
+      setErrorMsg("Failed to delete bill: " + err.message);
+    }
+    setLoading(false);
+  };
+
   const saveMockEventData = (eventName, expenses) => {
     const data = JSON.parse(localStorage.getItem('ieee_mock_data')) || {};
     const existingImages = data[eventName]?.images || [];
@@ -2880,15 +2932,26 @@ function App() {
                               <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.3' }}>
                                 Bill #{idx + 1} ({img.category})
                               </span>
-                              <a 
-                                href={img.imageUrl} 
-                                target="_blank" 
-                                rel="noreferrer" 
-                                className="btn btn-secondary" 
-                                style={{ display: 'block', textAlign: 'center', fontSize: '0.75rem', padding: '6px 0', textDecoration: 'none', color: 'var(--text-main)' }}
-                              >
-                                View Full Bill
-                              </a>
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <a 
+                                  href={img.imageUrl} 
+                                  target="_blank" 
+                                  rel="noreferrer" 
+                                  className="btn btn-secondary" 
+                                  style={{ flex: 1, textAlign: 'center', fontSize: '0.75rem', padding: '6px 0', textDecoration: 'none', color: 'var(--text-main)', display: 'block' }}
+                                >
+                                  View Bill
+                                </a>
+                                <button 
+                                  type="button"
+                                  className="btn btn-secondary" 
+                                  onClick={() => handleDeleteBill(img.imageUrl)}
+                                  style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: '#ef4444', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                  title="Delete Bill"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         ))}
