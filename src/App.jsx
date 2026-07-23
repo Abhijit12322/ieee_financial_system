@@ -167,6 +167,7 @@ function App() {
             sessionStorage.setItem('ieee_user_email', targetEmail);
             setLoginError('');
             setLoading(false);
+            fetchYearlySpreadsheets();
             return;
           } else {
             setLoginError(verifyResult.error || 'Invalid email or passcode.');
@@ -187,6 +188,7 @@ function App() {
       sessionStorage.setItem('ieee_is_auth', 'true');
       sessionStorage.setItem('ieee_user_email', targetEmail);
       setLoginError('');
+      fetchYearlySpreadsheets();
     } else {
       setLoginError('Invalid email or passcode.');
     }
@@ -356,6 +358,23 @@ function App() {
     setEmailInput('');
     setPasswordInput('');
     setLoginView('login');
+
+    // Reset all React state to default values to prevent data leaking
+    setActiveModule('expenses');
+    setSelectedExpensesYear('2026');
+    setExpensesSeasons(['2026']);
+    setCurrentEvent('');
+    setEvents([]);
+    setEventData({ expenses: [] });
+    setCurrentBkYear('');
+    setBkYears([]);
+    setIncomes([]);
+    setWithdraws([]);
+    setInitialBalances([]);
+    setYearlySpreadsheets([]);
+    setSearchTerm('');
+    setSuccessMsg('');
+    setErrorMsg('');
 
     // Attempt to log logout online
     if (userEmail) {
@@ -702,28 +721,30 @@ function App() {
     }
   }, []);
 
-  // Fetch lists on module/connection state change
+  // Fetch lists on module/connection state change or authentication state change
   useEffect(() => {
-    if (activeModule === 'expenses') {
-      fetchEvents(selectedExpensesYear);
-    } else {
-      fetchBookKeepingYears();
+    if (isAuthenticated) {
+      if (activeModule === 'expenses') {
+        fetchEvents(selectedExpensesYear);
+      } else {
+        fetchBookKeepingYears();
+      }
     }
-  }, [isApiMode, activeModule, selectedExpensesYear]);
+  }, [isApiMode, activeModule, selectedExpensesYear, isAuthenticated]);
 
   // Fetch detailed tab data on active tab selection or year change
   useEffect(() => {
-    if (activeModule === 'expenses') {
+    if (isAuthenticated && activeModule === 'expenses') {
       if (currentEvent) {
         fetchEventData(currentEvent, selectedExpensesYear);
       } else {
         setEventData({ expenses: [] });
       }
     }
-  }, [currentEvent, activeModule, selectedExpensesYear]);
+  }, [currentEvent, activeModule, selectedExpensesYear, isAuthenticated]);
 
   useEffect(() => {
-    if (activeModule === 'bookkeeping') {
+    if (isAuthenticated && activeModule === 'bookkeeping') {
       if (currentBkYear) {
         fetchBookKeepingData(currentBkYear);
       } else {
@@ -732,7 +753,7 @@ function App() {
         setInitialBalances([]);
       }
     }
-  }, [currentBkYear, activeModule]);
+  }, [currentBkYear, activeModule, isAuthenticated]);
 
   const initializeMockData = () => {
     if (!localStorage.getItem('ieee_mock_events')) {
@@ -810,6 +831,26 @@ function App() {
   useEffect(() => {
     fetchYearlySpreadsheets();
   }, []);
+
+  // Sync expensesSeasons with yearlySpreadsheets database entries
+  useEffect(() => {
+    if (isAuthenticated && yearlySpreadsheets.length > 0) {
+      const dbYears = yearlySpreadsheets
+        .filter(item => item.module_type === 'expenses')
+        .map(item => item.year.toString());
+      
+      if (dbYears.length > 0) {
+        setExpensesSeasons(prev => {
+          const merged = [...new Set([...prev, ...dbYears])].sort((a, b) => b - a);
+          if (JSON.stringify(merged) !== JSON.stringify(prev)) {
+            localStorage.setItem('ieee_expenses_seasons', JSON.stringify(merged));
+            return merged;
+          }
+          return prev;
+        });
+      }
+    }
+  }, [yearlySpreadsheets, isAuthenticated]);
 
   const handleSaveYearlyLink = async (e) => {
     if (e) e.preventDefault();
