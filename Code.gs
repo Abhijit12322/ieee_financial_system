@@ -13,9 +13,12 @@ function doGet(e) {
   var response = {};
   
   try {
-    var ss = getSpreadsheet(spreadsheetId);
-    if (!ss) {
-      throw new Error("Spreadsheet not found. Please provide a valid spreadsheetId or run this as a container-bound script.");
+    var ss = null;
+    if (action === 'getEvents' || action === 'getEventData' || action === 'getBookKeepingEvents' || action === 'getBookKeepingData') {
+      ss = getSpreadsheet(spreadsheetId);
+      if (!ss) {
+        throw new Error("Spreadsheet not found. Please provide a valid spreadsheetId.");
+      }
     }
     
     if (action === 'getEvents') {
@@ -42,7 +45,6 @@ function doGet(e) {
           security_question: "What is the default recovery code?"
         } 
       };
-
     } else {
       // Default: show welcome message and diagnostic details
       var testDrive = "Unknown";
@@ -60,16 +62,35 @@ function doGet(e) {
         effectiveUser = "Error: " + err.message;
       }
 
+      var testSpreadsheet = "Not Checked";
+      if (spreadsheetId) {
+        try {
+          var tempSs = SpreadsheetApp.openById(spreadsheetId);
+          testSpreadsheet = tempSs ? "OK (" + tempSs.getName() + ")" : "Failed to open";
+        } catch (err) {
+          testSpreadsheet = "Failed: " + err.message;
+        }
+      }
+
       response = { 
         success: true, 
         message: "IEEE Event Expenses & Book Keeping API is running.",
-        spreadsheetName: ss ? ss.getName() : "None",
+        spreadsheetStatus: testSpreadsheet,
         effectiveUser: effectiveUser,
         drivePermission: testDrive
       };
     }
   } catch (error) {
-    response = { success: false, error: error.message };
+    var runningAs = "Unknown";
+    try {
+      runningAs = Session.getEffectiveUser().getEmail();
+    } catch (e) {
+      runningAs = "No Email Permission (Multi-login or scope restriction)";
+    }
+    response = { 
+      success: false, 
+      error: error.message + " [Running as: " + runningAs + "]" 
+    };
   }
   
   return jsonResponse(response);
