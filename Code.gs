@@ -163,6 +163,41 @@ function doPost(e) {
       
       deleteEventSheet(ss, yearName);
       response = { success: true, message: "Year '" + yearName + "' deleted successfully.", events: getBookKeepingSheetsList(ss) };
+    } else if (action === 'linkBillImage') {
+      var eventName = data.eventName;
+      var category = data.category || 'General';
+      var fileName = data.fileName || 'Linked Bill';
+      var embedUrl = data.embedUrl;
+      var fileUrl = data.fileUrl;
+
+      if (!eventName || !embedUrl || !fileUrl) {
+        throw new Error("Missing eventName, embedUrl, or fileUrl");
+      }
+
+      var sheet = ss.getSheetByName(eventName);
+      if (sheet) {
+        var lastCol = sheet.getLastColumn();
+        var targetCol = 6;
+        if (lastCol >= 6) {
+          var row5Vals = sheet.getRange(5, 6, 1, lastCol - 5).getValues()[0];
+          for (var c = 0; c < row5Vals.length; c++) {
+            if (!row5Vals[c]) {
+              targetCol = 6 + c;
+              break;
+            }
+          }
+          if (targetCol === 6 && row5Vals[0]) {
+            targetCol = lastCol + 1;
+          }
+        }
+        
+        sheet.getRange(5, targetCol).setValue(category).setFontWeight("bold");
+        sheet.getRange(6, targetCol).setValue(fileName).setFontStyle("italic");
+        sheet.getRange(7, targetCol).setFormula('=IMAGE("' + embedUrl + '")');
+        sheet.getRange(8, targetCol).setValue(fileUrl);
+      }
+
+      response = { success: true, message: "Bill link added successfully to sheet." };
     } else if (action === 'uploadBillImage') {
       var eventName = data.eventName;
       var fileName = data.fileName;
@@ -240,56 +275,6 @@ function doPost(e) {
         embedUrl: embedUrl,
         message: "Bill image uploaded successfully to Google Drive & synced to sheet." 
       };
-    } else if (action === 'addBillLink') {
-      var eventName = data.eventName;
-      var category = data.category || 'General';
-      var fileName = data.fileName || 'Bill Link';
-      var fileUrl = data.fileUrl;
-
-      if (!eventName || !fileUrl) {
-        throw new Error("Missing eventName or fileUrl");
-      }
-
-      var sheet = ss.getSheetByName(eventName);
-      if (sheet) {
-        var lastCol = sheet.getLastColumn();
-        var targetCol = 6; // Column F
-        if (lastCol >= 6) {
-          var row5Vals = sheet.getRange(5, 6, 1, lastCol - 5).getValues()[0];
-          for (var c = 0; c < row5Vals.length; c++) {
-            if (!row5Vals[c]) {
-              targetCol = 6 + c;
-              break;
-            }
-          }
-          if (targetCol === 6 && row5Vals[0]) {
-            targetCol = lastCol + 1;
-          }
-        }
-        
-        // Extract file ID if it is a Google Drive URL to make it inline embeddable
-        var embedUrl = fileUrl;
-        if (fileUrl.indexOf("drive.google.com") !== -1) {
-          var fileId = "";
-          var matches = fileUrl.match(/\/d\/([a-zA-Z0-9_-]+)/) || fileUrl.match(/id=([a-zA-Z0-9_-]+)/);
-          if (matches && matches[1]) {
-            fileId = matches[1];
-            embedUrl = "https://docs.google.com/uc?export=view&id=" + fileId;
-          }
-        }
-
-        sheet.getRange(5, targetCol).setValue(category).setFontWeight("bold");
-        sheet.getRange(6, targetCol).setValue(fileName).setFontStyle("italic");
-        
-        if (fileUrl.indexOf("drive.google.com") !== -1 || fileUrl.match(/\.(jpeg|jpg|gif|png)$/i) != null) {
-          sheet.getRange(7, targetCol).setFormula('=IMAGE("' + embedUrl + '")');
-        } else {
-          sheet.getRange(7, targetCol).setValue("Link");
-        }
-        sheet.getRange(8, targetCol).setValue(fileUrl);
-      }
-
-      response = { success: true, message: "Bill link attached successfully." };
     } else {
       throw new Error("Unknown action: " + action);
     }
@@ -1161,9 +1146,31 @@ function createBookKeepingSheet(ss, yearName) {
 
 // Run this function once manually in the Apps Script editor to authorize Google Drive & Spreadsheets permissions
 function authorizePortal() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  Logger.log("Authorized Spreadsheet: " + (ss ? ss.getName() : "None"));
-  var folder = DriveApp.getRootFolder();
-  Logger.log("Authorized Google Drive: Root folder retrieved.");
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    Logger.log("Authorized Spreadsheet: " + (ss ? ss.getName() : "None"));
+  } catch (err) {
+    Logger.log("Spreadsheet Access Status: " + err.message);
+  }
+  
+  try {
+    // Force email scope authorization
+    var email = Session.getEffectiveUser().getEmail();
+    Logger.log("Authorized Email: " + email);
+  } catch (err) {
+    Logger.log("Email Authorization Failed: " + err.message);
+  }
+
+  try {
+    // Force Drive write scope authorization by creating a temporary folder
+    var testFolder = DriveApp.createFolder("IEEE Temp Test Folder");
+    Logger.log("Authorized Google Drive Folder Creation.");
+    
+    // Clean up/trash the temp folder immediately
+    testFolder.setTrashed(true);
+    Logger.log("Cleaned up temporary test folder.");
+  } catch (err) {
+    Logger.log("Drive Authorization Failed: " + err.message);
+  }
 }
 
