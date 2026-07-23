@@ -1159,6 +1159,7 @@ function App() {
               action: 'uploadBillImage',
               spreadsheetId: activeSsId,
               eventName: currentEvent,
+              year: selectedExpensesYear,
               fileName: file.name,
               fileData: base64Data,
               mimeType: file.type,

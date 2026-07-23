@@ -204,6 +204,7 @@ function doPost(e) {
       var fileData = data.fileData; // base64 string
       var mimeType = data.mimeType || 'image/png';
       var category = data.category || 'General';
+      var year = data.year || 'General';
 
       if (!eventName || !fileName || !fileData) {
         throw new Error("Missing eventName, fileName, or fileData for image upload");
@@ -214,24 +215,20 @@ function doPost(e) {
       var blob = Utilities.newBlob(bytes, mimeType, fileName);
 
       // Find or create "IEEE Portal Bill Uploads" folder in Drive
-      var folderName = "IEEE Portal Bill Uploads";
-      var folders = DriveApp.getFoldersByName(folderName);
-      var folder;
-      if (folders.hasNext()) {
-        folder = folders.next();
+      var rootFolderName = "IEEE Portal Bill Uploads";
+      var rootFolders = DriveApp.getFoldersByName(rootFolderName);
+      var rootFolder;
+      if (rootFolders.hasNext()) {
+        rootFolder = rootFolders.next();
       } else {
-        folder = DriveApp.createFolder(folderName);
+        rootFolder = DriveApp.createFolder(rootFolderName);
       }
 
-      // Create event specific subfolder
-      var subFolderName = ss.getName() + " - " + eventName;
-      var subFolders = folder.getFoldersByName(subFolderName);
-      var subFolder;
-      if (subFolders.hasNext()) {
-        subFolder = subFolders.next();
-      } else {
-        subFolder = folder.createFolder(subFolderName);
-      }
+      // Find or create Year subfolder
+      var yearFolder = getOrCreateSubFolder(rootFolder, year);
+
+      // Find or create Event subfolder inside Year folder
+      var subFolder = getOrCreateSubFolder(yearFolder, eventName);
 
       // Save file
       var file = subFolder.createFile(blob);
@@ -1171,6 +1168,16 @@ function authorizePortal() {
     Logger.log("Cleaned up temporary test folder.");
   } catch (err) {
     Logger.log("Drive Authorization Failed: " + err.message);
+  }
+}
+
+// Helper to find or create a subfolder inside a parent folder
+function getOrCreateSubFolder(parentFolder, subFolderName) {
+  var folders = parentFolder.getFoldersByName(subFolderName);
+  if (folders.hasNext()) {
+    return folders.next();
+  } else {
+    return parentFolder.createFolder(subFolderName);
   }
 }
 
