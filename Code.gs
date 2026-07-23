@@ -44,12 +44,28 @@ function doGet(e) {
       };
 
     } else {
-      // Default: show welcome message
+      // Default: show welcome message and diagnostic details
+      var testDrive = "Unknown";
+      try {
+        var root = DriveApp.getRootFolder();
+        testDrive = "OK (Root: " + root.getName() + ")";
+      } catch (err) {
+        testDrive = "Failed: " + err.message;
+      }
+      
+      var effectiveUser = "Unknown";
+      try {
+        effectiveUser = Session.getEffectiveUser().getEmail();
+      } catch (err) {
+        effectiveUser = "Error: " + err.message;
+      }
+
       response = { 
         success: true, 
         message: "IEEE Event Expenses & Book Keeping API is running.",
-        spreadsheetName: ss.getName(),
-        spreadsheetUrl: ss.getUrl()
+        spreadsheetName: ss ? ss.getName() : "None",
+        effectiveUser: effectiveUser,
+        drivePermission: testDrive
       };
     }
   } catch (error) {
