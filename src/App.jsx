@@ -3953,30 +3953,13 @@ function App() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
-                    Please review the files you selected. You can assign custom names and change categories individually so they can be easily recognized.
+                    Please review the files you selected. You can assign a custom name/description for each invoice before uploading.
                   </p>
-
-                  {/* Batch Category Modifier */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Set Category for All:</span>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      placeholder="e.g. Catering, Logistics, Printing" 
-                      style={{ maxWidth: '200px', padding: '6px 12px', fontSize: '0.8rem' }}
-                      onChange={(e) => {
-                        const val = e.target.value.trim();
-                        if (val) {
-                          setUploadQueue(prev => prev.map(item => ({ ...item, category: val })));
-                        }
-                      }}
-                    />
-                  </div>
 
                   {/* Scrollable File List */}
                   <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
                     {uploadQueue.map((item, idx) => (
-                      <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 150px', gap: '16px', alignItems: 'center', padding: '12px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-page)' }}>
+                      <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '16px', alignItems: 'center', padding: '12px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-page)' }}>
                         {/* Thumbnail Preview */}
                         <div style={{ width: '80px', height: '80px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-color)', backgroundColor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           {item.fileObj.type.startsWith('image/') ? (
@@ -3996,22 +3979,6 @@ function App() {
                             onChange={(e) => {
                               const val = e.target.value;
                               setUploadQueue(prev => prev.map(q => q.id === item.id ? { ...q, fileName: val } : q));
-                            }}
-                            required
-                          />
-                        </div>
-
-                        {/* Category Select */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Category</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            placeholder="e.g. Printing"
-                            value={item.category}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setUploadQueue(prev => prev.map(q => q.id === item.id ? { ...q, category: val } : q));
                             }}
                             required
                           />
