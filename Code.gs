@@ -424,9 +424,11 @@ function getSheetData(ss, sheetName) {
     var maxCols = sheet.getLastColumn();
     if (maxCols >= 6) {
       var headers = sheet.getRange(5, 6, 1, maxCols - 5).getValues()[0];
+      var fileNames = sheet.getRange(6, 6, 1, maxCols - 5).getValues()[0];
       for (var k = 0; k < headers.length; k++) {
         var category = headers[k];
         if (category) {
+          var fileName = fileNames[k] || ("Bill #" + (k + 1));
           var cellFormula = sheet.getRange(7, 6 + k).getFormula();
           var cellValue = sheet.getRange(7, 6 + k).getValue();
           var imageUrl = "";
@@ -443,6 +445,7 @@ function getSheetData(ss, sheetName) {
           if (imageUrl) {
             images.push({
               category: category.toString(),
+              fileName: fileName.toString(),
               imageUrl: imageUrl
             });
           }

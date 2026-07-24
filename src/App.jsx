@@ -689,6 +689,8 @@ function App() {
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [newEventName, setNewEventName] = useState('');
   const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState([]);
+  const [isNamingModalOpen, setIsNamingModalOpen] = useState(false);
 
   // Book Keeping Modals state
   const [showBkModal, setShowBkModal] = useState(false);
@@ -1118,32 +1120,41 @@ function App() {
       }
     }
 
-    const categoryInput = prompt("Enter bill category for these uploads (e.g., Food, Decor, Printing, Travel):", "General");
-    if (categoryInput === null) return;
-    const category = categoryInput.trim() || 'General';
-
-    const fileUploadConfigs = [];
-    for (const file of files) {
+    const newQueue = files.map((file, index) => {
       const defaultName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
-      const customNameInput = prompt(`Enter name/description for "${file.name}":`, defaultName);
-      
-      if (customNameInput === null) {
-        continue;
-      }
-      
-      const customName = customNameInput.trim() || defaultName;
       const fileExt = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '';
-      const driveFileName = customName.endsWith(fileExt) ? customName : (customName + fileExt);
-      
-      fileUploadConfigs.push({
-        fileObj: file,
-        driveFileName: driveFileName
-      });
-    }
+      const previewUrl = URL.createObjectURL(file);
 
-    if (fileUploadConfigs.length === 0) return;
+      return {
+        id: `upload-${Date.now()}-${index}`,
+        fileObj: file,
+        fileName: defaultName,
+        fileExt: fileExt,
+        previewUrl: previewUrl,
+        category: 'General'
+      };
+    });
+
+    setUploadQueue(newQueue);
+    setIsNamingModalOpen(true);
+    e.target.value = '';
+  };
+
+  const cancelQueueUpload = () => {
+    uploadQueue.forEach(item => {
+      try {
+        URL.revokeObjectURL(item.previewUrl);
+      } catch (e) {}
+    });
+    setUploadQueue([]);
+    setIsNamingModalOpen(false);
+  };
+
+  const executeQueueUpload = async () => {
+    if (uploadQueue.length === 0) return;
 
     setLoading(true);
+    setIsNamingModalOpen(false);
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -1166,9 +1177,10 @@ function App() {
       });
     };
 
-    for (const config of fileUploadConfigs) {
-      const file = config.fileObj;
-      const driveFileName = config.driveFileName;
+    for (const item of uploadQueue) {
+      const file = item.fileObj;
+      const customName = item.fileName.trim();
+      const driveFileName = customName.endsWith(item.fileExt) ? customName : (customName + item.fileExt);
       
       try {
         const base64Data = await readFileAsBase64(file);
@@ -1187,7 +1199,7 @@ function App() {
               fileName: driveFileName,
               fileData: base64Data,
               mimeType: file.type,
-              category: category
+              category: item.category
             })
           });
 
@@ -1206,8 +1218,9 @@ function App() {
             mockData[currentEvent].images = [];
           }
           mockData[currentEvent].images.push({
-            category: category,
-            imageUrl: `https://example.com/mock-bill-${driveFileName}`
+            category: item.category,
+            fileName: driveFileName,
+            imageUrl: item.previewUrl
           });
           localStorage.setItem('ieee_mock_data', JSON.stringify(mockData));
           successCount++;
@@ -1215,8 +1228,14 @@ function App() {
       } catch (err) {
         console.error(`Failed to upload ${driveFileName}:`, err);
         failedFiles.push(driveFileName);
+      } finally {
+        try {
+          URL.revokeObjectURL(item.previewUrl);
+        } catch (e) {}
       }
     }
+
+    setUploadQueue([]);
 
     if (successCount > 0) {
       setSuccessMsg(`Successfully uploaded ${successCount} bill(s) to Drive & synced to sheet!`);
@@ -2954,7 +2973,7 @@ function App() {
                             </div>
                             <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, justifyContent: 'space-between' }}>
                               <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.3' }}>
-                                Bill #{idx + 1} ({img.category})
+                               {img.fileName ? img.fileName.replace(/\.[^/.]+$/, "") : `Bill #${idx + 1}`} ({img.category})
                               </span>
                               <div style={{ display: 'flex', gap: '6px' }}>
                                 <a 
@@ -3915,6 +3934,102 @@ function App() {
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+          {/* Bill Naming Modal */}
+          {isNamingModalOpen && (
+            <div className="modal-overlay" style={{ zIndex: 1000 }}>
+              <div className="modal-content" style={{ maxWidth: '800px', width: '95%' }}>
+                <div className="modal-header">
+                  <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ShoppingBag size={18} style={{ color: 'var(--primary)' }} />
+                    Name Your Bills & Invoices
+                  </h3>
+                  <button className="btn btn-ghost" onClick={cancelQueueUpload}>
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+                    Please review the files you selected. You can assign custom names and change categories individually so they can be easily recognized.
+                  </p>
+
+                  {/* Batch Category Modifier */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Set Category for All:</span>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      placeholder="e.g. Catering, Logistics, Printing" 
+                      style={{ maxWidth: '200px', padding: '6px 12px', fontSize: '0.8rem' }}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        if (val) {
+                          setUploadQueue(prev => prev.map(item => ({ ...item, category: val })));
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {/* Scrollable File List */}
+                  <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
+                    {uploadQueue.map((item, idx) => (
+                      <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 150px', gap: '16px', alignItems: 'center', padding: '12px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-page)' }}>
+                        {/* Thumbnail Preview */}
+                        <div style={{ width: '80px', height: '80px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-color)', backgroundColor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {item.fileObj.type.startsWith('image/') ? (
+                            <img src={item.previewUrl} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            <div style={{ fontSize: '1.8rem', color: 'var(--text-muted)' }}>📄</div>
+                          )}
+                        </div>
+
+                        {/* Name Input */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Bill Description / Name</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={item.fileName}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setUploadQueue(prev => prev.map(q => q.id === item.id ? { ...q, fileName: val } : q));
+                            }}
+                            required
+                          />
+                        </div>
+
+                        {/* Category Select */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Category</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="e.g. Printing"
+                            value={item.category}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setUploadQueue(prev => prev.map(q => q.id === item.id ? { ...q, category: val } : q));
+                            }}
+                            required
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="form-actions" style={{ marginTop: '8px' }}>
+                    <button type="button" className="btn btn-secondary" onClick={cancelQueueUpload}>
+                      Cancel
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={executeQueueUpload}>
+                      Upload {uploadQueue.length} Bill{uploadQueue.length > 1 ? 's' : ''} to Drive
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
