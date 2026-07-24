@@ -1122,6 +1122,27 @@ function App() {
     if (categoryInput === null) return;
     const category = categoryInput.trim() || 'General';
 
+    const fileUploadConfigs = [];
+    for (const file of files) {
+      const defaultName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+      const customNameInput = prompt(`Enter name/description for "${file.name}":`, defaultName);
+      
+      if (customNameInput === null) {
+        continue;
+      }
+      
+      const customName = customNameInput.trim() || defaultName;
+      const fileExt = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '';
+      const driveFileName = customName.endsWith(fileExt) ? customName : (customName + fileExt);
+      
+      fileUploadConfigs.push({
+        fileObj: file,
+        driveFileName: driveFileName
+      });
+    }
+
+    if (fileUploadConfigs.length === 0) return;
+
     setLoading(true);
     setErrorMsg('');
     setSuccessMsg('');
@@ -1145,7 +1166,10 @@ function App() {
       });
     };
 
-    for (const file of files) {
+    for (const config of fileUploadConfigs) {
+      const file = config.fileObj;
+      const driveFileName = config.driveFileName;
+      
       try {
         const base64Data = await readFileAsBase64(file);
         
@@ -1160,7 +1184,7 @@ function App() {
               spreadsheetId: activeSsId,
               eventName: currentEvent,
               year: selectedExpensesYear,
-              fileName: file.name,
+              fileName: driveFileName,
               fileData: base64Data,
               mimeType: file.type,
               category: category
@@ -1183,14 +1207,14 @@ function App() {
           }
           mockData[currentEvent].images.push({
             category: category,
-            imageUrl: `https://example.com/mock-bill-${file.name}`
+            imageUrl: `https://example.com/mock-bill-${driveFileName}`
           });
           localStorage.setItem('ieee_mock_data', JSON.stringify(mockData));
           successCount++;
         }
       } catch (err) {
-        console.error(`Failed to upload ${file.name}:`, err);
-        failedFiles.push(file.name);
+        console.error(`Failed to upload ${driveFileName}:`, err);
+        failedFiles.push(driveFileName);
       }
     }
 
