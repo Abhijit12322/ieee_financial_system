@@ -1612,11 +1612,11 @@ function App() {
           },
           body: JSON.stringify({
             action: 'saveBookKeepingData',
-            spreadsheetId: activeBkSsId,
+            spreadsheetId: getActiveSpreadsheetId('bookkeeping', currentBkYear),
             yearName: currentBkYear,
-            withdraws: newWithdraws,
-            incomes: newIncomes,
-            initialBalances: newInitialBalances
+            withdraws: updatedWithdraws,
+            incomes: updatedIncomes,
+            initialBalances: updatedInitials
           })
         });
         const result = await response.json();
